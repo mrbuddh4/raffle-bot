@@ -6,6 +6,9 @@
   "engines": {
     "node": ">=20"
   },
+  "overrides": {
+    "utf-8-validate": "5.0.10"
+  },
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
@@ -19,6 +22,9 @@
     "ethers": "^6.13.4",
     "node-telegram-bot-api": "^0.66.0",
     "pg": "^8.13.1"
+  },
+  "optionalDependencies": {
+    "utf-8-validate": "5.0.10"
   },
   "devDependencies": {
     "@types/node": "^20.16.11",
