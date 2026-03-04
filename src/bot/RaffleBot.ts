@@ -360,6 +360,7 @@ export class RaffleBot {
             [{ text: '✏️ Username', callback_data: 'user:edit_username' }],
             [{ text: '🟣 EVM Wallet', callback_data: 'user:edit_wallet:evm' }],
             [{ text: '🟢 Solana Wallet', callback_data: 'user:edit_wallet:solana' }],
+            [{ text: '🏠 Home', callback_data: 'user:home' }],
           ],
         },
       }
@@ -607,6 +608,11 @@ export class RaffleBot {
 
     if (data === 'user:profile') {
       await this.sendProfileEditor(chatId, userId);
+      return;
+    }
+
+    if (data === 'user:home') {
+      await this.handleStart({ ...query.message!, from: query.from } as Message);
       return;
     }
 
@@ -879,7 +885,7 @@ export class RaffleBot {
 
       this.pendingByUser.delete(userId);
       await this.bot.sendMessage(msg.chat.id, `✅ Username updated to *${saved.displayUsername}*.`, { parse_mode: 'Markdown' });
-      await this.handleStart(msg);
+      await this.sendProfileEditor(msg.chat.id, userId);
       return;
     }
 
@@ -914,7 +920,7 @@ export class RaffleBot {
         ].join('\n'),
         { parse_mode: 'Markdown' }
       );
-      await this.handleStart(msg);
+      await this.sendProfileEditor(msg.chat.id, userId);
       return;
     }
 
@@ -965,7 +971,7 @@ export class RaffleBot {
         ].join('\n'),
         { parse_mode: 'Markdown' }
       );
-      await this.handleStart(msg);
+      await this.sendProfileEditor(msg.chat.id, userId);
       return;
     }
 
