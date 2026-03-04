@@ -879,6 +879,7 @@ export class RaffleBot {
 
       this.pendingByUser.delete(userId);
       await this.bot.sendMessage(msg.chat.id, `✅ Username updated to *${saved.displayUsername}*.`, { parse_mode: 'Markdown' });
+      await this.handleStart(msg);
       return;
     }
 
@@ -913,6 +914,7 @@ export class RaffleBot {
         ].join('\n'),
         { parse_mode: 'Markdown' }
       );
+      await this.handleStart(msg);
       return;
     }
 
@@ -963,6 +965,7 @@ export class RaffleBot {
         ].join('\n'),
         { parse_mode: 'Markdown' }
       );
+      await this.handleStart(msg);
       return;
     }
 
