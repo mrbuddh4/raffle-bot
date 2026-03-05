@@ -478,8 +478,19 @@ export class RaffleBot {
     this.pendingByUser.set(userId, { type: 'set_payout_chain' });
     await this.bot.sendMessage(
       msg.chat.id,
-      'Set payout wallet signer. Send chain: `evm` or `solana`.',
-      this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      'Set payout wallet signer. Choose chain:',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🟣 EVM', callback_data: 'admin:set_payout_chain:evm' },
+              { text: '🟢 Solana', callback_data: 'admin:set_payout_chain:solana' },
+            ],
+            [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+          ],
+        },
+      }
     );
   }
 
@@ -498,8 +509,19 @@ export class RaffleBot {
     this.pendingByUser.set(userId, { type: 'remove_payout_chain' });
     await this.bot.sendMessage(
       msg.chat.id,
-      'Remove payout signer. Send chain: `evm` or `solana`.',
-      this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      'Remove payout signer. Choose chain:',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🟣 EVM', callback_data: 'admin:remove_payout_chain:evm' },
+              { text: '🟢 Solana', callback_data: 'admin:remove_payout_chain:solana' },
+            ],
+            [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+          ],
+        },
+      }
     );
   }
 
@@ -636,11 +658,15 @@ export class RaffleBot {
         await this.renderUserCard(
           chatId,
           userId,
-          ['📝 *Registration*', '', `Username: *${pending.username}*`, 'Step 2/3 — Send chain: `evm` or `solana`.'].join('\n'),
+          ['📝 *Registration*', '', `Username: *${pending.username}*`, 'Step 2/3 — Choose chain:'].join('\n'),
           {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
+                [
+                  { text: '🟣 EVM', callback_data: 'user:register_chain:evm' },
+                  { text: '🟢 Solana', callback_data: 'user:register_chain:solana' },
+                ],
                 [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],
                 [{ text: '🏠 Home', callback_data: 'user:home' }],
               ],
@@ -649,6 +675,38 @@ export class RaffleBot {
           query.message?.message_id
         );
       }
+      return;
+    }
+
+    if (data === 'user:register_chain:evm' || data === 'user:register_chain:solana') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'register_chain') {
+        return;
+      }
+
+      const chain: WalletChain = data.endsWith(':evm') ? 'evm' : 'solana';
+      this.pendingByUser.set(userId, { type: 'register_wallet', username: pending.username, chain });
+      await this.renderUserCard(
+        chatId,
+        userId,
+        [
+          '📝 *Registration*',
+          '',
+          `Username: *${pending.username}*`,
+          `Chain: *${chain.toUpperCase()}*`,
+          'Step 3/3 — Send wallet address.',
+        ].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Back', callback_data: 'user:reg_back_chain' }],
+              [{ text: '🏠 Home', callback_data: 'user:home' }],
+            ],
+          },
+        },
+        query.message?.message_id
+      );
       return;
     }
 
@@ -730,6 +788,24 @@ export class RaffleBot {
       return;
     }
 
+    if (data === 'admin:create_raffle_chain:evm' || data === 'admin:create_raffle_chain:solana') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'create_raffle_chain') {
+        return;
+      }
+
+      const chain: WalletChain = data.endsWith(':evm') ? 'evm' : 'solana';
+      this.pendingByUser.set(userId, {
+        type: 'create_raffle_duration',
+        chatId: pending.chatId,
+        title: pending.title,
+        winnerCount: pending.winnerCount,
+        chain,
+      });
+      await this.bot.sendMessage(chatId, 'How many hours should this raffle run? Send a positive whole number (example: 24).');
+      return;
+    }
+
     if (data === 'admin:my_raffles') {
       await this.sendMyRaffles(chatId, userId);
       return;
@@ -740,8 +816,19 @@ export class RaffleBot {
       this.pendingByUser.set(userId, { type: 'set_payout_chain' });
       await this.bot.sendMessage(
         chatId,
-        'Send chain for payout signer setup: `evm` or `solana`.',
-        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+        'Choose chain for payout signer setup:',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🟣 EVM', callback_data: 'admin:set_payout_chain:evm' },
+                { text: '🟢 Solana', callback_data: 'admin:set_payout_chain:solana' },
+              ],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        }
       );
       return;
     }
@@ -751,7 +838,110 @@ export class RaffleBot {
       this.pendingByUser.set(userId, { type: 'remove_payout_chain' });
       await this.bot.sendMessage(
         chatId,
-        'Send chain to remove signer from: `evm` or `solana`.',
+        'Choose chain to remove signer from:',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🟣 EVM', callback_data: 'admin:remove_payout_chain:evm' },
+                { text: '🟢 Solana', callback_data: 'admin:remove_payout_chain:solana' },
+              ],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        }
+      );
+      return;
+    }
+
+    if (data === 'admin:set_payout_chain:evm' || data === 'admin:set_payout_chain:solana') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'set_payout_chain') {
+        return;
+      }
+
+      const chain: WalletChain = data.endsWith(':evm') ? 'evm' : 'solana';
+      this.pendingByUser.set(userId, { type: 'set_payout_mode', chain });
+      await this.bot.sendMessage(
+        chatId,
+        `Choose payout mode for ${chain.toUpperCase()}:`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '💰 Native', callback_data: 'admin:set_payout_mode:native' },
+                { text: '🪙 Token', callback_data: 'admin:set_payout_mode:token' },
+              ],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        }
+      );
+      return;
+    }
+
+    if (data === 'admin:set_payout_mode:native' || data === 'admin:set_payout_mode:token') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'set_payout_mode') {
+        return;
+      }
+
+      const mode: 'native' | 'token' = data.endsWith(':native') ? 'native' : 'token';
+      this.pendingByUser.set(userId, { type: 'set_payout_secret', chain: pending.chain, mode });
+      await this.bot.sendMessage(
+        chatId,
+        pending.chain === 'evm'
+          ? `Send the private key for ${mode.toUpperCase()} payouts on EVM.`
+          : `Send the Solana secret key for ${mode.toUpperCase()} payouts (JSON array or base64).`,
+        this.getAdminBackOptions()
+      );
+      return;
+    }
+
+    if (data === 'admin:remove_payout_chain:evm' || data === 'admin:remove_payout_chain:solana') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'remove_payout_chain') {
+        return;
+      }
+
+      const chain: WalletChain = data.endsWith(':evm') ? 'evm' : 'solana';
+      this.pendingByUser.set(userId, { type: 'remove_payout_mode', chain });
+      await this.bot.sendMessage(
+        chatId,
+        `Choose mode to remove for ${chain.toUpperCase()}:`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '💰 Native', callback_data: 'admin:remove_payout_mode:native' },
+                { text: '🪙 Token', callback_data: 'admin:remove_payout_mode:token' },
+              ],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        }
+      );
+      return;
+    }
+
+    if (data === 'admin:remove_payout_mode:native' || data === 'admin:remove_payout_mode:token') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'remove_payout_mode') {
+        return;
+      }
+
+      const mode: 'native' | 'token' = data.endsWith(':native') ? 'native' : 'token';
+      const removed = await this.adminPayoutWalletService.deleteWallet(userId, pending.chain, mode);
+      this.pendingByUser.delete(userId);
+
+      await this.bot.sendMessage(
+        chatId,
+        removed
+          ? `✅ Removed payout signer for *${pending.chain.toUpperCase()} ${mode.toUpperCase()}*.`
+          : `No payout signer found for *${pending.chain.toUpperCase()} ${mode.toUpperCase()}*.`,
         this.getAdminBackOptions({ parse_mode: 'Markdown' })
       );
       return;
@@ -787,15 +977,127 @@ export class RaffleBot {
       this.pendingByUser.set(userId, { type: 'execute_payout_mode', raffleId: raffle.id, chain: raffle.chain });
       await this.bot.sendMessage(
         chatId,
-        `Send payout mode for *${raffle.chain.toUpperCase()}*: \`native\` or \`token\`.`,
-        { parse_mode: 'Markdown' }
+        `Choose payout mode for *${raffle.chain.toUpperCase()}*:`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '💰 Native', callback_data: 'admin:execute_payout_mode:native' },
+                { text: '🪙 Token', callback_data: 'admin:execute_payout_mode:token' },
+              ],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        }
       );
       return;
     }
 
+    if (data === 'admin:execute_payout_mode:native' || data === 'admin:execute_payout_mode:token') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'execute_payout_mode') {
+        return;
+      }
+
+      const mode: 'native' | 'token' = data.endsWith(':native') ? 'native' : 'token';
+      if (mode === 'native') {
+        this.pendingByUser.set(userId, { type: 'execute_payout_amount', raffleId: pending.raffleId, chain: pending.chain, mode: 'native' });
+        await this.bot.sendMessage(
+          chatId,
+          `Send native amount per winner for ${pending.chain.toUpperCase()} (example: 0.01).`
+        );
+        return;
+      }
+
+      this.pendingByUser.set(userId, { type: 'execute_payout_token_address', raffleId: pending.raffleId, chain: pending.chain });
+      await this.bot.sendMessage(
+        chatId,
+        pending.chain === 'evm'
+          ? 'Send ERC-20 token contract address (0x...).'
+          : 'Send SPL token mint address.'
+      );
+      return;
+    }
+
+    if (data === 'admin:execute_payout_confirm') {
+      const execution = this.pendingExecutionByUser.get(userId);
+      if (!execution) {
+        this.pendingByUser.delete(userId);
+        await this.bot.sendMessage(chatId, 'No pending payout found. Please start again from admin panel.', this.getAdminBackOptions());
+        return;
+      }
+
+      try {
+        await this.bot.sendMessage(
+          chatId,
+          `⏳ Sending ${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'} payouts to ${execution.targets.length} wallet(s)...`
+        );
+        const results = execution.mode === 'native'
+          ? await this.payoutService.payoutNative(execution.chain, execution.amount, execution.targets, execution.signerSecret)
+          : await this.payoutService.payoutToken(execution.chain, execution.tokenAddress!, execution.amount, execution.targets, execution.signerSecret);
+
+        for (const result of results) {
+          await this.raffleService.markWinnerPaid(execution.raffleId, result.rank, result.txHash);
+        }
+
+        this.pendingByUser.delete(userId);
+        this.pendingExecutionByUser.delete(userId);
+        const lines = results.map((result) => `#${result.rank} \`${result.walletAddress}\`\nTx: \`${result.txHash}\``).join('\n\n');
+        await this.bot.sendMessage(
+          chatId,
+          `✅ On-chain payout complete.\nMode: *${execution.mode.toUpperCase()}*\nFrom wallet: \`${execution.signerWalletAddress}\`\nAmount each: *${execution.amount}* (${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'})\n${execution.tokenAddress ? `Token: \`${execution.tokenAddress}\`\n` : ''}\n${lines}`,
+          this.getAdminBackOptions({ parse_mode: 'Markdown' })
+        );
+      } catch (error: any) {
+        this.pendingExecutionByUser.delete(userId);
+        this.pendingByUser.delete(userId);
+        await this.bot.sendMessage(chatId, `❌ Payout failed: ${error?.message || 'unknown error'}`, this.getAdminBackOptions());
+      }
+
+      return;
+    }
+
+    if (data === 'admin:execute_payout_cancel') {
+      this.pendingByUser.delete(userId);
+      this.pendingExecutionByUser.delete(userId);
+      await this.bot.sendMessage(chatId, 'Payout cancelled.', this.getAdminBackOptions());
+      return;
+    }
+
     if (data === 'admin:mark_paid') {
-      this.pendingByUser.set(userId, { type: 'mark_paid_rank' });
-      await this.bot.sendMessage(chatId, 'Send winner rank number to mark paid (example: 1).');
+      const raffleId = await this.raffleService.getLastCompletedRaffleIdByCreator(userId);
+      if (!raffleId) {
+        await this.bot.sendMessage(chatId, 'No completed raffle found in your account.', this.getAdminBackOptions());
+        return;
+      }
+
+      const winners = await this.raffleService.getWinnersForPayout(raffleId);
+      if (winners.length === 0) {
+        await this.bot.sendMessage(chatId, 'No winners available to mark paid.', this.getAdminBackOptions());
+        return;
+      }
+
+      const rankButtons = winners.map((winner) => ([{ text: `#${winner.rank} ${winner.displayUsername}`, callback_data: `admin:mark_paid_rank:${raffleId}:${winner.rank}` }]));
+      await this.bot.sendMessage(chatId, 'Select winner rank to mark as paid:', {
+        reply_markup: {
+          inline_keyboard: [...rankButtons, [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }]],
+        },
+      });
+      return;
+    }
+
+    if (data.startsWith('admin:mark_paid_rank:')) {
+      const parts = data.split(':');
+      const raffleId = Number(parts[2]);
+      const rank = Number(parts[3]);
+      if (!Number.isInteger(raffleId) || !Number.isInteger(rank)) {
+        await this.bot.sendMessage(chatId, 'Invalid winner selection.', this.getAdminBackOptions());
+        return;
+      }
+
+      this.pendingByUser.set(userId, { type: 'mark_paid_tx', raffleId, rank });
+      await this.bot.sendMessage(chatId, `Send payout tx hash for winner #${rank}.`);
       return;
     }
   }
@@ -1017,11 +1319,15 @@ export class RaffleBot {
       await this.renderUserCard(
         msg.chat.id,
         userId,
-        ['📝 *Registration*', '', `Username: *${text}*`, 'Step 2/3 — Send chain: `evm` or `solana`.'].join('\n'),
+        ['📝 *Registration*', '', `Username: *${text}*`, 'Step 2/3 — Choose chain:'].join('\n'),
         {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
+              [
+                { text: '🟣 EVM', callback_data: 'user:register_chain:evm' },
+                { text: '🟢 Solana', callback_data: 'user:register_chain:solana' },
+              ],
               [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],
               [{ text: '🏠 Home', callback_data: 'user:home' }],
             ],
@@ -1037,11 +1343,15 @@ export class RaffleBot {
         await this.renderUserCard(
           msg.chat.id,
           userId,
-          ['📝 *Registration*', '', `Username: *${pending.username}*`, '❌ Invalid chain. Send `evm` or `solana`.'].join('\n'),
+          ['📝 *Registration*', '', `Username: *${pending.username}*`, '❌ Invalid chain. Choose one below:'].join('\n'),
           {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
+                [
+                  { text: '🟣 EVM', callback_data: 'user:register_chain:evm' },
+                  { text: '🟢 Solana', callback_data: 'user:register_chain:solana' },
+                ],
                 [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],
                 [{ text: '🏠 Home', callback_data: 'user:home' }],
               ],
@@ -1127,14 +1437,25 @@ export class RaffleBot {
       }
 
       this.pendingByUser.set(userId, { type: 'create_raffle_chain', chatId: pending.chatId, title: pending.title, winnerCount });
-      await this.bot.sendMessage(msg.chat.id, 'Send raffle chain: `evm` or `solana`.', { parse_mode: 'Markdown' });
+      await this.bot.sendMessage(msg.chat.id, 'Choose raffle chain:', {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🟣 EVM', callback_data: 'admin:create_raffle_chain:evm' },
+              { text: '🟢 Solana', callback_data: 'admin:create_raffle_chain:solana' },
+            ],
+            [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+          ],
+        },
+      });
       return;
     }
 
     if (pending.type === 'create_raffle_chain') {
       const chain = parseWalletChain(text);
       if (!chain) {
-        await this.bot.sendMessage(msg.chat.id, 'Invalid chain. Send `evm` or `solana`.', { parse_mode: 'Markdown' });
+        await this.bot.sendMessage(msg.chat.id, 'Invalid chain. Choose one of the buttons above.', { parse_mode: 'Markdown' });
         return;
       }
 
@@ -1252,9 +1573,17 @@ export class RaffleBot {
           `Amount per winner: *${amount}*`,
           `Total amount: *${totalAmount}*`,
           '',
-          'Type *CONFIRM* to execute, or type *CANCEL* to abort.',
+          'Choose an action below:',
         ].filter(Boolean).join('\n'),
-        { parse_mode: 'Markdown' }
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Confirm Payout', callback_data: 'admin:execute_payout_confirm' }],
+              [{ text: '❌ Cancel', callback_data: 'admin:execute_payout_cancel' }],
+            ],
+          },
+        }
       );
 
       return;
