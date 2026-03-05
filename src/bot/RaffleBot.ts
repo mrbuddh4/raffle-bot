@@ -1784,26 +1784,35 @@ export class RaffleBot {
         return;
       }
 
-      const raffle = await this.raffleService.createRaffle(
-        pending.title,
-        pending.winnerCount,
-        pending.allEntrantsWin,
-        pending.chain,
-        userId,
-        pending.chatId,
-        pending.durationHours,
-        pending.rewardToken,
-        rewardTotalAmount
-      );
-      this.pendingByUser.delete(userId);
-      await this.renderAdminCard(
-        msg.chat.id,
-        userId,
-        `🎉 Raffle created!\nTitle: *${raffle.title}*\nWinners: *${pending.allEntrantsWin ? 'All entrants' : raffle.winnerCount}*\nChain: *${raffle.chain.toUpperCase()}*\nDuration: *${pending.durationHours} hour(s)*\nReward: *${rewardTotalAmount} ${pending.rewardToken}*\nUsers can now press *Enter*.\nWinner selection is automatic and random once target entries are reached.`,
-        this.getAdminBackOptions({ parse_mode: 'Markdown' })
-      );
+      try {
+        const raffle = await this.raffleService.createRaffle(
+          pending.title,
+          pending.winnerCount,
+          pending.allEntrantsWin,
+          pending.chain,
+          userId,
+          pending.chatId,
+          pending.durationHours,
+          pending.rewardToken,
+          rewardTotalAmount
+        );
+        this.pendingByUser.delete(userId);
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          `🎉 Raffle created!\nTitle: *${raffle.title}*\nWinners: *${pending.allEntrantsWin ? 'All entrants' : raffle.winnerCount}*\nChain: *${raffle.chain.toUpperCase()}*\nDuration: *${pending.durationHours} hour(s)*\nReward: *${rewardTotalAmount} ${pending.rewardToken}*\nUsers can now press *Enter*.\nWinner selection is automatic and random once target entries are reached.`,
+          this.getAdminBackOptions({ parse_mode: 'Markdown' })
+        );
 
-      await this.announceRaffleGoLive(raffle);
+        await this.announceRaffleGoLive(raffle);
+      } catch (error: any) {
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          `Could not create raffle yet: ${error?.message || 'unknown error'}. Please send amount again.`,
+          this.getAdminBackOptions()
+        );
+      }
       return;
     }
 
@@ -2072,25 +2081,36 @@ export class RaffleBot {
     const hourlyAlerts = await this.raffleService.getRafflesNeedingHourlyAlert(now);
     for (const raffle of hourlyAlerts) {
       if (!raffle.announcementChatId || !raffle.endsAt) {
-        await this.raffleService.bumpNextHourlyAlert(raffle.id);
+        await this.raffleService.bumpNextHourlyAlert(raffle.id, new Date(now.getTime() + 3600000));
         continue;
       }
 
       const remainingMs = raffle.endsAt.getTime() - now.getTime();
       if (remainingMs > 0) {
-        const hoursLeft = Math.max(1, Math.ceil(remainingMs / 3600000));
+        const minutesLeft = Math.max(1, Math.ceil(remainingMs / 60000));
+        const countdownText = minutesLeft < 60
+          ? `*${minutesLeft}m* left`
+          : `*${Math.ceil(minutesLeft / 60)}h* left`;
         const registerLink = this.getRegisterLink();
         await this.bot.sendMessage(
           raffle.announcementChatId,
           [
-            `⏰ *${raffle.title}* countdown: *${hoursLeft}h* left`,
+            `⏰ *${raffle.title}* countdown: ${countdownText}`,
             registerLink ? `Join: ${registerLink}` : null,
           ].filter(Boolean).join('\n'),
           { parse_mode: 'Markdown' }
         );
+
+        const nextDelayMs = minutesLeft <= 60
+          ? 60000
+          : minutesLeft <= 360
+            ? 900000
+            : 3600000;
+        await this.raffleService.bumpNextHourlyAlert(raffle.id, new Date(now.getTime() + nextDelayMs));
+        continue;
       }
 
-      await this.raffleService.bumpNextHourlyAlert(raffle.id);
+      await this.raffleService.bumpNextHourlyAlert(raffle.id, new Date(now.getTime() + 3600000));
     }
 
     const endedRaffles = await this.raffleService.getRafflesPastEnd(now);

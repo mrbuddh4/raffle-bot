@@ -74,8 +74,8 @@ export class RaffleService {
         $6,
         NOW(),
         NOW() + make_interval(hours => $7),
-        date_trunc('hour', NOW()) + INTERVAL '1 hour',
-        $8
+        NOW() + INTERVAL '5 minutes',
+        $8,
         $9
       )
       RETURNING id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
@@ -295,14 +295,14 @@ export class RaffleService {
     return result.rows.map((row) => this.mapRaffle(row));
   }
 
-  async bumpNextHourlyAlert(raffleId: number): Promise<void> {
+  async bumpNextHourlyAlert(raffleId: number, nextAlertAt: Date): Promise<void> {
     await this.pool.query(
       `
       UPDATE raffles
-      SET next_hourly_alert_at = next_hourly_alert_at + INTERVAL '1 hour'
+      SET next_hourly_alert_at = $2
       WHERE id = $1
       `,
-      [raffleId]
+      [raffleId, nextAlertAt]
     );
   }
 
