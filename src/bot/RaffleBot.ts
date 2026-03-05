@@ -53,6 +53,7 @@ export class RaffleBot {
   private announcementTimer: NodeJS.Timeout | null = null;
   private readonly pendingByUser = new Map<number, PendingState>();
   private readonly pendingExecutionByUser = new Map<number, PendingExecution>();
+  private readonly userCardByUser = new Map<number, { chatId: number; messageId: number }>();
 
   constructor(pool: Pool) {
     this.bot = new TelegramBot(getRequiredEnv('TELEGRAM_BOT_TOKEN'), { polling: true });
@@ -177,32 +178,7 @@ export class RaffleBot {
       return;
     }
 
-    const user = await this.userService.getByTelegramUserId(userId);
-    const openRaffles = (await this.raffleService.getOpenRaffles()).filter((raffle) => raffle.status === 'open');
-    const matchingOpenRaffles = user ? openRaffles.filter((raffle) => Boolean(this.getUserWalletForChain(user, raffle.chain))) : [];
-
-    const lines = [
-      '🎉 *Airdrop / Raffle Bot*',
-      '',
-      openRaffles.length > 0
-        ? `Open raffles right now: *${openRaffles.length}*${user ? `\nMatching your chain: *${matchingOpenRaffles.length}*` : ''}`
-        : 'No open raffles at the moment.',
-      '',
-      user
-        ? [
-            `✅ Registered as *${user.displayUsername}*`,
-            `EVM Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
-            `Solana Wallet: ${user.solanaWalletAddress ? `\`${user.solanaWalletAddress}\`` : '_not set_'}`,
-          ].join('\n')
-        : 'You are not registered yet.',
-    ];
-
-    await this.bot.sendMessage(chatId, lines.join('\n'), {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: this.getStartInlineKeyboard(userId, Boolean(user)),
-      },
-    });
+    await this.sendHomeCard(chatId, userId, msg.message_id);
   }
 
   private async handleHelp(msg: Message): Promise<void> {
@@ -279,7 +255,18 @@ export class RaffleBot {
     if (!userId) return;
 
     this.pendingByUser.set(userId, { type: 'register_username' });
-    await this.bot.sendMessage(msg.chat.id, 'Send your username for raffles (display name).');
+    await this.renderUserCard(
+      msg.chat.id,
+      userId,
+      ['📝 *Registration*', '', 'Step 1/3 — Send your username for raffles (display name).'].join('\n'),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '🏠 Home', callback_data: 'user:home' }]],
+        },
+      },
+      msg.message_id
+    );
   }
 
   private async handleProfile(msg: Message): Promise<void> {
@@ -336,23 +323,25 @@ export class RaffleBot {
     );
   }
 
-  private async sendProfileEditor(chatId: number, userId: number): Promise<void> {
+  private async sendProfileEditor(chatId: number, userId: number, preferredMessageId?: number, notice?: string): Promise<void> {
     const user = await this.userService.getByTelegramUserId(userId);
     if (!user) {
       await this.bot.sendMessage(chatId, 'No profile found yet. Use /register first.');
       return;
     }
 
-    await this.bot.sendMessage(
+    await this.renderUserCard(
       chatId,
+      userId,
       [
         '👤 *Profile Editor*',
+        notice ? `${notice}` : null,
         `Username: *${user.displayUsername}*`,
         `EVM Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
         `Solana Wallet: ${user.solanaWalletAddress ? `\`${user.solanaWalletAddress}\`` : '_not set_'}`,
         '',
         'Choose what you want to edit:',
-      ].join('\n'),
+      ].filter(Boolean).join('\n'),
       {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -363,7 +352,8 @@ export class RaffleBot {
             [{ text: '🏠 Home', callback_data: 'user:home' }],
           ],
         },
-      }
+      },
+      preferredMessageId
     );
   }
 
@@ -602,32 +592,112 @@ export class RaffleBot {
 
     if (data === 'user:register') {
       this.pendingByUser.set(userId, { type: 'register_username' });
-      await this.bot.sendMessage(chatId, 'Send your username for raffles (display name).');
+      await this.renderUserCard(
+        chatId,
+        userId,
+        ['📝 *Registration*', '', 'Step 1/3 — Send your username for raffles (display name).'].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[{ text: '🏠 Home', callback_data: 'user:home' }]],
+          },
+        },
+        query.message?.message_id
+      );
       return;
     }
 
     if (data === 'user:profile') {
-      await this.sendProfileEditor(chatId, userId);
+      await this.sendProfileEditor(chatId, userId, query.message?.message_id);
+      return;
+    }
+
+    if (data === 'user:reg_back_username') {
+      this.pendingByUser.set(userId, { type: 'register_username' });
+      await this.renderUserCard(
+        chatId,
+        userId,
+        ['📝 *Registration*', '', 'Step 1/3 — Send your username for raffles (display name).'].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[{ text: '🏠 Home', callback_data: 'user:home' }]],
+          },
+        },
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'user:reg_back_chain') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type === 'register_wallet') {
+        this.pendingByUser.set(userId, { type: 'register_chain', username: pending.username });
+        await this.renderUserCard(
+          chatId,
+          userId,
+          ['📝 *Registration*', '', `Username: *${pending.username}*`, 'Step 2/3 — Send chain: `evm` or `solana`.'].join('\n'),
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],
+                [{ text: '🏠 Home', callback_data: 'user:home' }],
+              ],
+            },
+          },
+          query.message?.message_id
+        );
+      }
       return;
     }
 
     if (data === 'user:home') {
-      await this.handleStart({ ...query.message!, from: query.from } as Message);
+      await this.sendHomeCard(chatId, userId, query.message?.message_id);
       return;
     }
 
     if (data === 'user:edit_username') {
       this.pendingByUser.set(userId, { type: 'edit_username' });
-      await this.bot.sendMessage(chatId, 'Send your new display username.');
+      await this.renderUserCard(
+        chatId,
+        userId,
+        ['✏️ *Edit Username*', '', 'Send your new display username.'].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Back', callback_data: 'user:profile' }],
+              [{ text: '🏠 Home', callback_data: 'user:home' }],
+            ],
+          },
+        },
+        query.message?.message_id
+      );
       return;
     }
 
     if (data === 'user:edit_wallet:evm' || data === 'user:edit_wallet:solana') {
       const chain: WalletChain = data.endsWith(':evm') ? 'evm' : 'solana';
       this.pendingByUser.set(userId, { type: 'edit_wallet', chain });
-      await this.bot.sendMessage(
+      await this.renderUserCard(
         chatId,
-        chain === 'evm' ? 'Send your new EVM wallet address (0x...)' : 'Send your new Solana wallet address'
+        userId,
+        [
+          `✏️ *Edit ${chain.toUpperCase()} Wallet*`,
+          '',
+          chain === 'evm' ? 'Send your new EVM wallet address (0x...)' : 'Send your new Solana wallet address',
+        ].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Back', callback_data: 'user:profile' }],
+              [{ text: '🏠 Home', callback_data: 'user:home' }],
+            ],
+          },
+        },
+        query.message?.message_id
       );
       return;
     }
@@ -737,6 +807,16 @@ export class RaffleBot {
 
     const pending = this.pendingByUser.get(userId);
     if (!pending) return;
+
+    const isUserProfileFlow = pending.type === 'edit_username'
+      || pending.type === 'edit_wallet'
+      || pending.type === 'register_username'
+      || pending.type === 'register_chain'
+      || pending.type === 'register_wallet';
+
+    if (isUserProfileFlow && msg.chat.type === 'private') {
+      await this.safeDeleteMessage(msg.chat.id, msg.message_id);
+    }
 
     if (pending.type === 'csv_upload') {
       if (!this.isAdmin(userId)) return;
@@ -884,14 +964,31 @@ export class RaffleBot {
       });
 
       this.pendingByUser.delete(userId);
-      await this.bot.sendMessage(msg.chat.id, `✅ Username updated to *${saved.displayUsername}*.`, { parse_mode: 'Markdown' });
-      await this.sendProfileEditor(msg.chat.id, userId);
+      await this.sendProfileEditor(msg.chat.id, userId, undefined, `✅ Username updated to *${saved.displayUsername}*.`);
       return;
     }
 
     if (pending.type === 'edit_wallet') {
       if (!isValidWalletForChain(text, pending.chain)) {
-        await this.bot.sendMessage(msg.chat.id, `Invalid wallet format for ${pending.chain.toUpperCase()}.`);
+        await this.renderUserCard(
+          msg.chat.id,
+          userId,
+          [
+            `✏️ *Edit ${pending.chain.toUpperCase()} Wallet*`,
+            '',
+            `❌ Invalid wallet format for ${pending.chain.toUpperCase()}.`,
+            pending.chain === 'evm' ? 'Send your new EVM wallet address (0x...)' : 'Send your new Solana wallet address',
+          ].join('\n'),
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '⬅️ Back', callback_data: 'user:profile' }],
+                [{ text: '🏠 Home', callback_data: 'user:home' }],
+              ],
+            },
+          }
+        );
         return;
       }
 
@@ -911,40 +1008,95 @@ export class RaffleBot {
       });
 
       this.pendingByUser.delete(userId);
-      await this.bot.sendMessage(
-        msg.chat.id,
-        [
-          `✅ ${pending.chain.toUpperCase()} wallet updated.`,
-          `EVM Wallet: ${saved.evmWalletAddress ? `\`${saved.evmWalletAddress}\`` : '_not set_'}`,
-          `Solana Wallet: ${saved.solanaWalletAddress ? `\`${saved.solanaWalletAddress}\`` : '_not set_'}`,
-        ].join('\n'),
-        { parse_mode: 'Markdown' }
-      );
-      await this.sendProfileEditor(msg.chat.id, userId);
+      await this.sendProfileEditor(msg.chat.id, userId, undefined, `✅ ${pending.chain.toUpperCase()} wallet updated.`);
       return;
     }
 
     if (pending.type === 'register_username') {
       this.pendingByUser.set(userId, { type: 'register_chain', username: text });
-      await this.bot.sendMessage(msg.chat.id, 'Now choose wallet chain: send `evm` or `solana`.', { parse_mode: 'Markdown' });
+      await this.renderUserCard(
+        msg.chat.id,
+        userId,
+        ['📝 *Registration*', '', `Username: *${text}*`, 'Step 2/3 — Send chain: `evm` or `solana`.'].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],
+              [{ text: '🏠 Home', callback_data: 'user:home' }],
+            ],
+          },
+        }
+      );
       return;
     }
 
     if (pending.type === 'register_chain') {
       const chain = parseWalletChain(text);
       if (!chain) {
-        await this.bot.sendMessage(msg.chat.id, 'Invalid chain. Send `evm` or `solana`.', { parse_mode: 'Markdown' });
+        await this.renderUserCard(
+          msg.chat.id,
+          userId,
+          ['📝 *Registration*', '', `Username: *${pending.username}*`, '❌ Invalid chain. Send `evm` or `solana`.'].join('\n'),
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],
+                [{ text: '🏠 Home', callback_data: 'user:home' }],
+              ],
+            },
+          }
+        );
         return;
       }
 
       this.pendingByUser.set(userId, { type: 'register_wallet', username: pending.username, chain });
-      await this.bot.sendMessage(msg.chat.id, chain === 'evm' ? 'Now send your EVM wallet address (0x...)' : 'Now send your Solana wallet address');
+      await this.renderUserCard(
+        msg.chat.id,
+        userId,
+        [
+          '📝 *Registration*',
+          '',
+          `Username: *${pending.username}*`,
+          `Chain: *${chain.toUpperCase()}*`,
+          'Step 3/3 — Send wallet address.',
+        ].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '⬅️ Back', callback_data: 'user:reg_back_chain' }],
+              [{ text: '🏠 Home', callback_data: 'user:home' }],
+            ],
+          },
+        }
+      );
       return;
     }
 
     if (pending.type === 'register_wallet') {
       if (!isValidWalletForChain(text, pending.chain)) {
-        await this.bot.sendMessage(msg.chat.id, `Invalid wallet format for ${pending.chain.toUpperCase()}.`);
+        await this.renderUserCard(
+          msg.chat.id,
+          userId,
+          [
+            '📝 *Registration*',
+            '',
+            `Username: *${pending.username}*`,
+            `Chain: *${pending.chain.toUpperCase()}*`,
+            `❌ Invalid wallet format for ${pending.chain.toUpperCase()}. Send wallet address again.`,
+          ].join('\n'),
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '⬅️ Back', callback_data: 'user:reg_back_chain' }],
+                [{ text: '🏠 Home', callback_data: 'user:home' }],
+              ],
+            },
+          }
+        );
         return;
       }
 
@@ -957,21 +1109,7 @@ export class RaffleBot {
       });
 
       this.pendingByUser.delete(userId);
-      await this.bot.sendMessage(
-        msg.chat.id,
-        [
-          '✅ Saved!',
-          `Username: *${saved.displayUsername}*`,
-          `Updated chain: *${pending.chain.toUpperCase()}*`,
-          '',
-          `EVM Wallet: ${saved.evmWalletAddress ? `\`${saved.evmWalletAddress}\`` : '_not set_'}`,
-          `Solana Wallet: ${saved.solanaWalletAddress ? `\`${saved.solanaWalletAddress}\`` : '_not set_'}`,
-          '',
-          'Use *Enter* or /enter for any raffle.',
-        ].join('\n'),
-        { parse_mode: 'Markdown' }
-      );
-      await this.sendProfileEditor(msg.chat.id, userId);
+      await this.sendProfileEditor(msg.chat.id, userId, undefined, '✅ Profile saved.');
       return;
     }
 
@@ -1459,6 +1597,86 @@ export class RaffleBot {
       `✅ CSV processed. Added *${inserted}* entries to *${activeRaffle.title}*.\nTotal entries: *${total}*`,
       this.getAdminBackOptions({ parse_mode: 'Markdown' })
     );
+  }
+
+  private async sendHomeCard(chatId: number, userId: number, preferredMessageId?: number): Promise<void> {
+    const user = await this.userService.getByTelegramUserId(userId);
+    const openRaffles = (await this.raffleService.getOpenRaffles()).filter((raffle) => raffle.status === 'open');
+    const matchingOpenRaffles = user ? openRaffles.filter((raffle) => Boolean(this.getUserWalletForChain(user, raffle.chain))) : [];
+
+    const lines = [
+      '🎉 *Airdrop / Raffle Bot*',
+      '',
+      openRaffles.length > 0
+        ? `Open raffles right now: *${openRaffles.length}*${user ? `\nMatching your chain: *${matchingOpenRaffles.length}*` : ''}`
+        : 'No open raffles at the moment.',
+      '',
+      user
+        ? [
+            `✅ Registered as *${user.displayUsername}*`,
+            `EVM Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
+            `Solana Wallet: ${user.solanaWalletAddress ? `\`${user.solanaWalletAddress}\`` : '_not set_'}`,
+          ].join('\n')
+        : 'You are not registered yet.',
+    ];
+
+    await this.renderUserCard(
+      chatId,
+      userId,
+      lines.join('\n'),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: this.getStartInlineKeyboard(userId, Boolean(user)),
+        },
+      },
+      preferredMessageId
+    );
+  }
+
+  private async renderUserCard(
+    chatId: number,
+    userId: number,
+    text: string,
+    options: TelegramBot.SendMessageOptions = {},
+    preferredMessageId?: number
+  ): Promise<number> {
+    const tracked = this.userCardByUser.get(userId);
+    const targetMessageId = preferredMessageId ?? (tracked?.chatId === chatId ? tracked.messageId : undefined);
+
+    if (targetMessageId) {
+      try {
+        await this.bot.editMessageText(text, {
+          ...(options as TelegramBot.EditMessageTextOptions),
+          chat_id: chatId,
+          message_id: targetMessageId,
+        });
+        this.userCardByUser.set(userId, { chatId, messageId: targetMessageId });
+        return targetMessageId;
+      } catch (error: any) {
+        const message = typeof error?.message === 'string' ? error.message : '';
+        if (message.includes('message is not modified')) {
+          this.userCardByUser.set(userId, { chatId, messageId: targetMessageId });
+          return targetMessageId;
+        }
+      }
+    }
+
+    const sent = await this.bot.sendMessage(chatId, text, options);
+    this.userCardByUser.set(userId, { chatId, messageId: sent.message_id });
+    return sent.message_id;
+  }
+
+  private async safeDeleteMessage(chatId: number, messageId?: number): Promise<void> {
+    if (!messageId) {
+      return;
+    }
+
+    try {
+      await this.bot.deleteMessage(chatId, messageId);
+    } catch {
+      // ignore cleanup failures
+    }
   }
 
   private isAdmin(userId: number): boolean {
