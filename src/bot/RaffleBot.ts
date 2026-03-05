@@ -273,10 +273,6 @@ export class RaffleBot {
   }
 
   private async handleEnterCommand(msg: Message): Promise<void> {
-    if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
-      return;
-    }
-
     const userId = msg.from?.id;
     if (!userId) {
       return;
@@ -424,10 +420,6 @@ export class RaffleBot {
   private async enterActiveRaffle(msg: Message): Promise<void> {
     const userId = msg.from?.id;
     if (!userId) return;
-
-    if (!(await this.ensureGroupAdminAccess(msg.chat, userId))) {
-      return;
-    }
 
     const openRaffles = (await this.raffleService.getOpenRaffles()).filter((raffle) => raffle.status === 'open');
     if (openRaffles.length === 0) {
@@ -691,7 +683,7 @@ export class RaffleBot {
 
     await this.bot.answerCallbackQuery(query.id);
 
-    if (query.message?.chat.type !== 'private' && !this.isAdmin(userId)) {
+    if (query.message?.chat.type !== 'private' && !this.isAdmin(userId) && data !== 'user:enter') {
       await this.bot.sendMessage(chatId, 'In groups, bot commands are admin-only.');
       return;
     }
