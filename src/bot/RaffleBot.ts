@@ -1800,7 +1800,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           msg.chat.id,
           userId,
-          `🎉 Raffle created!\nTitle: *${raffle.title}*\nWinners: *${pending.allEntrantsWin ? 'All entrants' : raffle.winnerCount}*\nChain: *${raffle.chain.toUpperCase()}*\nDuration: *${pending.durationHours} hour(s)*\nReward: *${rewardTotalAmount} ${pending.rewardToken}*\nUsers can now press *Enter*.\nWinner selection is automatic and random once target entries are reached.`,
+          `🎉 Raffle created!\nTitle: *${raffle.title}*\nWinners: *${pending.allEntrantsWin ? 'All entrants' : raffle.winnerCount}*\nChain: *${raffle.chain.toUpperCase()}*\nDuration: *${pending.durationHours} hour(s)*\nReward: *${rewardTotalAmount} ${pending.rewardToken}*\nUsers can now press *Enter*.\nWinner selection is automatic and random when the raffle time window ends.`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
 
@@ -2037,15 +2037,8 @@ export class RaffleBot {
       return;
     }
 
-    const entries = await this.raffleService.getEntryCount(raffle.id);
     if (!forceAtEnd) {
-      if (raffle.allEntrantsWin) {
-        return;
-      }
-
-      if (entries < raffle.winnerCount) {
-        return;
-      }
+      return;
     }
 
     const claimed = await this.raffleService.claimOpenRaffleForDrawing(raffle.id);
