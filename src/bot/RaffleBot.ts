@@ -54,6 +54,7 @@ export class RaffleBot {
   private readonly pendingByUser = new Map<number, PendingState>();
   private readonly pendingExecutionByUser = new Map<number, PendingExecution>();
   private readonly userCardByUser = new Map<number, { chatId: number; messageId: number }>();
+  private readonly adminCardByUser = new Map<number, { chatId: number; messageId: number }>();
 
   constructor(pool: Pool) {
     this.bot = new TelegramBot(getRequiredEnv('TELEGRAM_BOT_TOKEN'), { polling: true });
@@ -447,7 +448,7 @@ export class RaffleBot {
       return;
     }
 
-    await this.sendAdminPanel(msg.chat.id, userId);
+    await this.sendAdminPanel(msg.chat.id, userId, msg.message_id);
   }
 
   private async handleMyRaffles(msg: Message): Promise<void> {
@@ -461,7 +462,7 @@ export class RaffleBot {
       return;
     }
 
-    await this.sendMyRaffles(msg.chat.id, userId);
+    await this.sendMyRaffles(msg.chat.id, userId, msg.message_id);
   }
 
   private async handleSetPayoutWallet(msg: Message): Promise<void> {
@@ -476,8 +477,9 @@ export class RaffleBot {
     }
 
     this.pendingByUser.set(userId, { type: 'set_payout_chain' });
-    await this.bot.sendMessage(
+    await this.renderAdminCard(
       msg.chat.id,
+      userId,
       'Set payout wallet signer. Choose chain:',
       {
         parse_mode: 'Markdown',
@@ -490,7 +492,8 @@ export class RaffleBot {
             [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
           ],
         },
-      }
+      },
+      msg.message_id
     );
   }
 
@@ -507,8 +510,9 @@ export class RaffleBot {
 
     await this.sendPayoutWalletSettings(msg.chat.id, userId);
     this.pendingByUser.set(userId, { type: 'remove_payout_chain' });
-    await this.bot.sendMessage(
+    await this.renderAdminCard(
       msg.chat.id,
+      userId,
       'Remove payout signer. Choose chain:',
       {
         parse_mode: 'Markdown',
@@ -521,38 +525,43 @@ export class RaffleBot {
             [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
           ],
         },
-      }
+      },
+      msg.message_id
     );
   }
 
-  private async sendPayoutWalletSettings(chatId: number, adminId: number): Promise<void> {
+  private async sendPayoutWalletSettings(chatId: number, adminId: number, preferredMessageId?: number): Promise<void> {
     const wallets = await this.adminPayoutWalletService.listWallets(adminId);
     if (wallets.length === 0) {
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        adminId,
         'No payout wallet signers configured yet. Click *Set Payout Wallet* to add one.',
-        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        preferredMessageId
       );
       return;
     }
 
     const lines = wallets.map((wallet) => `${wallet.chain.toUpperCase()} ${wallet.mode.toUpperCase()} → \`${wallet.walletAddress}\``);
-    await this.bot.sendMessage(
+    await this.renderAdminCard(
       chatId,
+      adminId,
       `🔐 *Your payout wallet signers*\n\n${lines.join('\n')}`,
-      this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+      preferredMessageId
     );
   }
 
-  private async sendMyRaffles(chatId: number, userId: number): Promise<void> {
+  private async sendMyRaffles(chatId: number, userId: number, preferredMessageId?: number): Promise<void> {
 
     const raffles = await this.raffleService.getRafflesByCreator(userId, 10);
     if (raffles.length === 0) {
-      await this.bot.sendMessage(chatId, 'You have not created any raffles yet.', {
+      await this.renderAdminCard(chatId, userId, 'You have not created any raffles yet.', {
         reply_markup: {
           inline_keyboard: [[{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }]],
         },
-      });
+      }, preferredMessageId);
       return;
     }
 
@@ -560,8 +569,9 @@ export class RaffleBot {
       (raffle) => `#${raffle.id} · *${raffle.title}* · ${raffle.status.toUpperCase()} · ${raffle.chain.toUpperCase()} · winners: ${raffle.winnerCount}`
     );
 
-    await this.bot.sendMessage(
+    await this.renderAdminCard(
       chatId,
+      userId,
       `🗂 *Your recent raffles*\n\n${lines.join('\n')}`,
       {
         parse_mode: 'Markdown',
@@ -569,15 +579,18 @@ export class RaffleBot {
           inline_keyboard: [[{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }]],
         },
       }
+      ,
+      preferredMessageId
     );
   }
 
-  private async sendAdminPanel(chatId: number, adminId: number): Promise<void> {
+  private async sendAdminPanel(chatId: number, adminId: number, preferredMessageId?: number): Promise<void> {
 
     const raffle = await this.raffleService.getActiveRaffleByCreator(adminId);
 
-    await this.bot.sendMessage(
+    await this.renderAdminCard(
       chatId,
+      adminId,
       raffle
         ? `🛠 Admin Panel\nYour active raffle: *${raffle.title}* (${raffle.status}) [${raffle.chain.toUpperCase()}]`
         : '🛠 Admin Panel\nYou have no active raffle.',
@@ -595,7 +608,8 @@ export class RaffleBot {
             [{ text: '📄 Upload CSV', callback_data: 'admin:csv' }],
           ],
         },
-      }
+      },
+      preferredMessageId
     );
   }
 
@@ -771,7 +785,7 @@ export class RaffleBot {
         return;
       }
 
-      await this.sendAdminPanel(chatId, userId);
+      await this.sendAdminPanel(chatId, userId, query.message?.message_id);
       return;
     }
 
@@ -784,7 +798,13 @@ export class RaffleBot {
 
     if (data === 'admin:create_raffle') {
       this.pendingByUser.set(userId, { type: 'create_raffle_title', chatId });
-      await this.bot.sendMessage(chatId, 'Send raffle title.');
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        '➕ *Create Raffle*\n\nStep 1/4 — Send raffle title.',
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        query.message?.message_id
+      );
       return;
     }
 
@@ -807,15 +827,15 @@ export class RaffleBot {
     }
 
     if (data === 'admin:my_raffles') {
-      await this.sendMyRaffles(chatId, userId);
+      await this.sendMyRaffles(chatId, userId, query.message?.message_id);
       return;
     }
 
     if (data === 'admin:set_payout_wallet') {
-      await this.sendPayoutWalletSettings(chatId, userId);
       this.pendingByUser.set(userId, { type: 'set_payout_chain' });
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        userId,
         'Choose chain for payout signer setup:',
         {
           parse_mode: 'Markdown',
@@ -828,16 +848,17 @@ export class RaffleBot {
               [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
             ],
           },
-        }
+        },
+        query.message?.message_id
       );
       return;
     }
 
     if (data === 'admin:remove_payout_wallet') {
-      await this.sendPayoutWalletSettings(chatId, userId);
       this.pendingByUser.set(userId, { type: 'remove_payout_chain' });
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        userId,
         'Choose chain to remove signer from:',
         {
           parse_mode: 'Markdown',
@@ -850,7 +871,8 @@ export class RaffleBot {
               [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
             ],
           },
-        }
+        },
+        query.message?.message_id
       );
       return;
     }
@@ -863,8 +885,9 @@ export class RaffleBot {
 
       const chain: WalletChain = data.endsWith(':evm') ? 'evm' : 'solana';
       this.pendingByUser.set(userId, { type: 'set_payout_mode', chain });
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        userId,
         `Choose payout mode for ${chain.toUpperCase()}:`,
         {
           parse_mode: 'Markdown',
@@ -877,7 +900,8 @@ export class RaffleBot {
               [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
             ],
           },
-        }
+        },
+        query.message?.message_id
       );
       return;
     }
@@ -890,12 +914,14 @@ export class RaffleBot {
 
       const mode: 'native' | 'token' = data.endsWith(':native') ? 'native' : 'token';
       this.pendingByUser.set(userId, { type: 'set_payout_secret', chain: pending.chain, mode });
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        userId,
         pending.chain === 'evm'
           ? `Send the private key for ${mode.toUpperCase()} payouts on EVM.`
           : `Send the Solana secret key for ${mode.toUpperCase()} payouts (JSON array or base64).`,
-        this.getAdminBackOptions()
+        this.getAdminBackOptions(),
+        query.message?.message_id
       );
       return;
     }
@@ -908,8 +934,9 @@ export class RaffleBot {
 
       const chain: WalletChain = data.endsWith(':evm') ? 'evm' : 'solana';
       this.pendingByUser.set(userId, { type: 'remove_payout_mode', chain });
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        userId,
         `Choose mode to remove for ${chain.toUpperCase()}:`,
         {
           parse_mode: 'Markdown',
@@ -922,7 +949,8 @@ export class RaffleBot {
               [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
             ],
           },
-        }
+        },
+        query.message?.message_id
       );
       return;
     }
@@ -937,12 +965,14 @@ export class RaffleBot {
       const removed = await this.adminPayoutWalletService.deleteWallet(userId, pending.chain, mode);
       this.pendingByUser.delete(userId);
 
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        userId,
         removed
           ? `✅ Removed payout signer for *${pending.chain.toUpperCase()} ${mode.toUpperCase()}*.`
           : `No payout signer found for *${pending.chain.toUpperCase()} ${mode.toUpperCase()}*.`,
-        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        query.message?.message_id
       );
       return;
     }
@@ -975,8 +1005,9 @@ export class RaffleBot {
       }
 
       this.pendingByUser.set(userId, { type: 'execute_payout_mode', raffleId: raffle.id, chain: raffle.chain });
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        userId,
         `Choose payout mode for *${raffle.chain.toUpperCase()}*:`,
         {
           parse_mode: 'Markdown',
@@ -989,7 +1020,8 @@ export class RaffleBot {
               [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
             ],
           },
-        }
+        },
+        query.message?.message_id
       );
       return;
     }
@@ -1003,19 +1035,25 @@ export class RaffleBot {
       const mode: 'native' | 'token' = data.endsWith(':native') ? 'native' : 'token';
       if (mode === 'native') {
         this.pendingByUser.set(userId, { type: 'execute_payout_amount', raffleId: pending.raffleId, chain: pending.chain, mode: 'native' });
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           chatId,
-          `Send native amount per winner for ${pending.chain.toUpperCase()} (example: 0.01).`
+          userId,
+          `Send native amount per winner for ${pending.chain.toUpperCase()} (example: 0.01).`,
+          this.getAdminBackOptions(),
+          query.message?.message_id
         );
         return;
       }
 
       this.pendingByUser.set(userId, { type: 'execute_payout_token_address', raffleId: pending.raffleId, chain: pending.chain });
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         chatId,
+        userId,
         pending.chain === 'evm'
           ? 'Send ERC-20 token contract address (0x...).'
-          : 'Send SPL token mint address.'
+          : 'Send SPL token mint address.',
+        this.getAdminBackOptions(),
+        query.message?.message_id
       );
       return;
     }
@@ -1061,29 +1099,29 @@ export class RaffleBot {
     if (data === 'admin:execute_payout_cancel') {
       this.pendingByUser.delete(userId);
       this.pendingExecutionByUser.delete(userId);
-      await this.bot.sendMessage(chatId, 'Payout cancelled.', this.getAdminBackOptions());
+      await this.renderAdminCard(chatId, userId, 'Payout cancelled.', this.getAdminBackOptions(), query.message?.message_id);
       return;
     }
 
     if (data === 'admin:mark_paid') {
       const raffleId = await this.raffleService.getLastCompletedRaffleIdByCreator(userId);
       if (!raffleId) {
-        await this.bot.sendMessage(chatId, 'No completed raffle found in your account.', this.getAdminBackOptions());
+        await this.renderAdminCard(chatId, userId, 'No completed raffle found in your account.', this.getAdminBackOptions(), query.message?.message_id);
         return;
       }
 
       const winners = await this.raffleService.getWinnersForPayout(raffleId);
       if (winners.length === 0) {
-        await this.bot.sendMessage(chatId, 'No winners available to mark paid.', this.getAdminBackOptions());
+        await this.renderAdminCard(chatId, userId, 'No winners available to mark paid.', this.getAdminBackOptions(), query.message?.message_id);
         return;
       }
 
       const rankButtons = winners.map((winner) => ([{ text: `#${winner.rank} ${winner.displayUsername}`, callback_data: `admin:mark_paid_rank:${raffleId}:${winner.rank}` }]));
-      await this.bot.sendMessage(chatId, 'Select winner rank to mark as paid:', {
+      await this.renderAdminCard(chatId, userId, 'Select winner rank to mark as paid:', {
         reply_markup: {
           inline_keyboard: [...rankButtons, [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }]],
         },
-      });
+      }, query.message?.message_id);
       return;
     }
 
@@ -1092,12 +1130,12 @@ export class RaffleBot {
       const raffleId = Number(parts[2]);
       const rank = Number(parts[3]);
       if (!Number.isInteger(raffleId) || !Number.isInteger(rank)) {
-        await this.bot.sendMessage(chatId, 'Invalid winner selection.', this.getAdminBackOptions());
+        await this.renderAdminCard(chatId, userId, 'Invalid winner selection.', this.getAdminBackOptions(), query.message?.message_id);
         return;
       }
 
       this.pendingByUser.set(userId, { type: 'mark_paid_tx', raffleId, rank });
-      await this.bot.sendMessage(chatId, `Send payout tx hash for winner #${rank}.`);
+      await this.renderAdminCard(chatId, userId, `Send payout tx hash for winner #${rank}.`, this.getAdminBackOptions(), query.message?.message_id);
       return;
     }
   }
@@ -1425,19 +1463,19 @@ export class RaffleBot {
 
     if (pending.type === 'create_raffle_title') {
       this.pendingByUser.set(userId, { type: 'create_raffle_winners', chatId: pending.chatId, title: text });
-      await this.bot.sendMessage(msg.chat.id, 'How many winners? Send a number (example: 10).');
+      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 2/4 — How many winners? Send a number (example: 10).', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
       return;
     }
 
     if (pending.type === 'create_raffle_winners') {
       const winnerCount = Number(text);
       if (!Number.isInteger(winnerCount) || winnerCount <= 0) {
-        await this.bot.sendMessage(msg.chat.id, 'Winner count must be a positive whole number.');
+        await this.renderAdminCard(msg.chat.id, userId, 'Winner count must be a positive whole number.', this.getAdminBackOptions());
         return;
       }
 
       this.pendingByUser.set(userId, { type: 'create_raffle_chain', chatId: pending.chatId, title: pending.title, winnerCount });
-      await this.bot.sendMessage(msg.chat.id, 'Choose raffle chain:', {
+      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 3/4 — Choose raffle chain:', {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
@@ -1455,7 +1493,7 @@ export class RaffleBot {
     if (pending.type === 'create_raffle_chain') {
       const chain = parseWalletChain(text);
       if (!chain) {
-        await this.bot.sendMessage(msg.chat.id, 'Invalid chain. Choose one of the buttons above.', { parse_mode: 'Markdown' });
+        await this.renderAdminCard(msg.chat.id, userId, 'Invalid chain. Choose one of the buttons above.', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
         return;
       }
 
@@ -1466,14 +1504,14 @@ export class RaffleBot {
         winnerCount: pending.winnerCount,
         chain,
       });
-      await this.bot.sendMessage(msg.chat.id, 'How many hours should this raffle run? Send a positive whole number (example: 24).');
+      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 4/4 — How many hours should this raffle run? Send a positive whole number (example: 24).', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
       return;
     }
 
     if (pending.type === 'create_raffle_duration') {
       const durationHours = Number(text);
       if (!Number.isInteger(durationHours) || durationHours <= 0) {
-        await this.bot.sendMessage(msg.chat.id, 'Duration must be a positive whole number of hours.');
+        await this.renderAdminCard(msg.chat.id, userId, 'Duration must be a positive whole number of hours.', this.getAdminBackOptions());
         return;
       }
 
@@ -1486,8 +1524,9 @@ export class RaffleBot {
         durationHours
       );
       this.pendingByUser.delete(userId);
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         msg.chat.id,
+        userId,
         `🎉 Raffle created!\nTitle: *${raffle.title}*\nWinners: *${raffle.winnerCount}*\nChain: *${raffle.chain.toUpperCase()}*\nDuration: *${durationHours} hour(s)*\nUsers can now press *Enter*.\nWinner selection is automatic and random once target entries are reached.`,
         this.getAdminBackOptions({ parse_mode: 'Markdown' })
       );
@@ -1499,26 +1538,26 @@ export class RaffleBot {
     if (pending.type === 'mark_paid_rank') {
       const rank = Number(text);
       if (!Number.isInteger(rank) || rank <= 0) {
-        await this.bot.sendMessage(msg.chat.id, 'Rank must be a positive number.');
+        await this.renderAdminCard(msg.chat.id, userId, 'Rank must be a positive number.', this.getAdminBackOptions());
         return;
       }
 
       const raffleId = await this.raffleService.getLastCompletedRaffleIdByCreator(userId);
       if (!raffleId) {
         this.pendingByUser.delete(userId);
-        await this.bot.sendMessage(msg.chat.id, 'No completed raffle found in your account.');
+        await this.renderAdminCard(msg.chat.id, userId, 'No completed raffle found in your account.', this.getAdminBackOptions());
         return;
       }
 
       this.pendingByUser.set(userId, { type: 'mark_paid_tx', raffleId, rank });
-      await this.bot.sendMessage(msg.chat.id, `Send payout tx hash for winner #${rank}.`);
+      await this.renderAdminCard(msg.chat.id, userId, `Send payout tx hash for winner #${rank}.`, this.getAdminBackOptions());
       return;
     }
 
     if (pending.type === 'mark_paid_tx') {
       const ok = await this.raffleService.markWinnerPaid(pending.raffleId, pending.rank, text);
       this.pendingByUser.delete(userId);
-      await this.bot.sendMessage(msg.chat.id, ok ? '✅ Winner marked paid.' : 'Could not mark paid.', this.getAdminBackOptions());
+      await this.renderAdminCard(msg.chat.id, userId, ok ? '✅ Winner marked paid.' : 'Could not mark paid.', this.getAdminBackOptions());
       return;
     }
 
@@ -1824,21 +1863,22 @@ export class RaffleBot {
   private async sendPayoutWallets(chatId: number, adminId: number, raffleId?: number): Promise<void> {
     const resolvedRaffleId = raffleId ?? (await this.raffleService.getLastCompletedRaffleIdByCreator(adminId));
     if (!resolvedRaffleId) {
-      await this.bot.sendMessage(chatId, 'No completed raffle found yet in your account.', this.getAdminBackOptions());
+      await this.renderAdminCard(chatId, adminId, 'No completed raffle found yet in your account.', this.getAdminBackOptions());
       return;
     }
 
     const winners = await this.raffleService.getWinnersForPayout(resolvedRaffleId);
     if (winners.length === 0) {
-      await this.bot.sendMessage(chatId, 'No winners available for payout.', this.getAdminBackOptions());
+      await this.renderAdminCard(chatId, adminId, 'No winners available for payout.', this.getAdminBackOptions());
       return;
     }
 
     const lines = winners.map((winner) => `${winner.rank},${winner.displayUsername},${winner.walletChain},${winner.walletAddress}`);
     const csv = ['rank,username,chain,wallet_address', ...lines].join('\n');
 
-    await this.bot.sendMessage(
+    await this.renderAdminCard(
       chatId,
+      adminId,
       `💸 *Payout Wallets*\n\n${winners.map((w) => `${w.rank}. ${w.walletChain.toUpperCase()} \`${w.walletAddress}\``).join('\n')}`,
       this.getAdminBackOptions({ parse_mode: 'Markdown' })
     );
@@ -1993,6 +2033,39 @@ export class RaffleBot {
 
     const sent = await this.bot.sendMessage(chatId, text, options);
     this.userCardByUser.set(userId, { chatId, messageId: sent.message_id });
+    return sent.message_id;
+  }
+
+  private async renderAdminCard(
+    chatId: number,
+    adminId: number,
+    text: string,
+    options: TelegramBot.SendMessageOptions = {},
+    preferredMessageId?: number
+  ): Promise<number> {
+    const tracked = this.adminCardByUser.get(adminId);
+    const targetMessageId = preferredMessageId ?? (tracked?.chatId === chatId ? tracked.messageId : undefined);
+
+    if (targetMessageId) {
+      try {
+        await this.bot.editMessageText(text, {
+          ...(options as TelegramBot.EditMessageTextOptions),
+          chat_id: chatId,
+          message_id: targetMessageId,
+        });
+        this.adminCardByUser.set(adminId, { chatId, messageId: targetMessageId });
+        return targetMessageId;
+      } catch (error: any) {
+        const message = typeof error?.message === 'string' ? error.message : '';
+        if (message.includes('message is not modified')) {
+          this.adminCardByUser.set(adminId, { chatId, messageId: targetMessageId });
+          return targetMessageId;
+        }
+      }
+    }
+
+    const sent = await this.bot.sendMessage(chatId, text, options);
+    this.adminCardByUser.set(adminId, { chatId, messageId: sent.message_id });
     return sent.message_id;
   }
 
