@@ -122,7 +122,7 @@ export class RaffleBot {
     this.bot.onText(/\/currentraffles/, (msg) => void this.handleCurrentRaffles(msg));
     this.bot.onText(/\/help/, (msg) => void this.handleHelp(msg));
     this.bot.onText(/\/register/, (msg) => void this.beginRegistration(msg));
-    this.bot.onText(/\/enter/, (msg) => void this.enterActiveRaffle(msg));
+    this.bot.onText(/\/enter/, (msg) => void this.handleEnterCommand(msg));
     this.bot.onText(/\/admin/, (msg) => void this.showAdminPanel(msg));
     this.bot.onText(/\/myraffles/, (msg) => void this.handleMyRaffles(msg));
     this.bot.onText(/\/setpayout/, (msg) => void this.handleSetPayoutWallet(msg));
@@ -268,6 +268,33 @@ export class RaffleBot {
       },
       msg.message_id
     );
+  }
+
+  private async handleEnterCommand(msg: Message): Promise<void> {
+    if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
+      return;
+    }
+
+    const userId = msg.from?.id;
+    if (!userId) {
+      return;
+    }
+
+    if (msg.chat.type !== 'private') {
+      await this.bot.sendMessage(
+        msg.chat.id,
+        'Tap *Enter Now* to confirm raffle entry.',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[{ text: '✅ Enter Now', callback_data: 'user:enter' }]],
+          },
+        }
+      );
+      return;
+    }
+
+    await this.sendHomeCard(msg.chat.id, userId, msg.message_id);
   }
 
   private async handleProfile(msg: Message): Promise<void> {
@@ -602,6 +629,7 @@ export class RaffleBot {
             [{ text: '⚙️ Set Payout Wallet', callback_data: 'admin:set_payout_wallet' }],
             [{ text: '🗑 Remove Payout Wallet', callback_data: 'admin:remove_payout_wallet' }],
             [{ text: '➕ Create Raffle', callback_data: 'admin:create_raffle' }],
+            [{ text: '❌ Cancel Active Raffle', callback_data: 'admin:cancel_raffle' }],
             [{ text: '📦 Payout Wallet List', callback_data: 'admin:payouts' }],
             [{ text: '🚀 Execute On-chain Payout', callback_data: 'admin:execute_payout' }],
             [{ text: '✅ Mark Winner Paid', callback_data: 'admin:mark_paid' }],
@@ -802,6 +830,60 @@ export class RaffleBot {
         chatId,
         userId,
         '➕ *Create Raffle*\n\nStep 1/4 — Send raffle title.',
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:cancel_raffle') {
+      const activeRaffle = await this.raffleService.getActiveRaffleByCreator(userId);
+      if (!activeRaffle) {
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          'No active raffle found to cancel.',
+          this.getAdminBackOptions(),
+          query.message?.message_id
+        );
+        return;
+      }
+
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        `❌ *Cancel Active Raffle*\n\nTitle: *${activeRaffle.title}*\nChain: *${activeRaffle.chain.toUpperCase()}*\n\nAre you sure you want to cancel this raffle?`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Yes, Cancel', callback_data: 'admin:cancel_raffle_confirm' }],
+              [{ text: '↩️ Keep Raffle', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        },
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:cancel_raffle_confirm') {
+      const cancelled = await this.raffleService.cancelActiveRaffleByCreator(userId);
+      if (!cancelled) {
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          'No active raffle found to cancel.',
+          this.getAdminBackOptions(),
+          query.message?.message_id
+        );
+        return;
+      }
+
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        `✅ Cancelled raffle *${cancelled.title}*.`,
         this.getAdminBackOptions({ parse_mode: 'Markdown' }),
         query.message?.message_id
       );
@@ -1581,8 +1663,8 @@ export class RaffleBot {
     }
 
     if (pending.type === 'execute_payout_amount') {
-      const amount = Number(text);
-      if (!Number.isFinite(amount) || amount <= 0) {
+      const enteredAmount = Number(text);
+      if (!Number.isFinite(enteredAmount) || enteredAmount <= 0) {
         await this.renderAdminCard(msg.chat.id, userId, 'Amount must be a positive number.', this.getAdminBackOptions());
         return;
       }
@@ -1607,13 +1689,20 @@ export class RaffleBot {
 
       const targets = winners.map((winner) => ({ rank: winner.rank, walletAddress: winner.walletAddress }));
 
-      const totalAmount = amount * targets.length;
+      const totalAmount = pending.mode === 'token' ? enteredAmount : enteredAmount * targets.length;
+      const amountPerWinner = pending.mode === 'token' ? enteredAmount / targets.length : enteredAmount;
+
+      if (!Number.isFinite(amountPerWinner) || amountPerWinner <= 0) {
+        await this.renderAdminCard(msg.chat.id, userId, 'Total token amount is too small for the current winner count.', this.getAdminBackOptions());
+        return;
+      }
+
       this.pendingExecutionByUser.set(userId, {
         raffleId: pending.raffleId,
         chain: pending.chain,
         mode: pending.mode,
         tokenAddress: pending.tokenAddress,
-        amount,
+        amount: amountPerWinner,
         signerSecret: signer.secret,
         signerWalletAddress: signer.walletAddress,
         targets,
@@ -1630,7 +1719,7 @@ export class RaffleBot {
           pending.tokenAddress ? `Token: \`${pending.tokenAddress}\`` : null,
           `From wallet: \`${signer.walletAddress}\``,
           `Winners: *${targets.length}*`,
-          `Amount per winner: *${amount}*`,
+          `Amount per winner: *${amountPerWinner}*`,
           `Total amount: *${totalAmount}*`,
           '',
           'Choose an action below:',
@@ -1757,7 +1846,7 @@ export class RaffleBot {
         mode: 'token',
         tokenAddress,
       });
-      await this.renderAdminCard(msg.chat.id, userId, 'Send token amount per winner (human units, example: 50).', this.getAdminBackOptions());
+      await this.renderAdminCard(msg.chat.id, userId, 'Send total token amount to distribute across all winners (human units, example: 500).', this.getAdminBackOptions());
       return;
     }
   }

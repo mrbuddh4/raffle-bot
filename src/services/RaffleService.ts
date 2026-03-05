@@ -144,6 +144,31 @@ export class RaffleService {
     return this.mapRaffle(result.rows[0]);
   }
 
+  async cancelActiveRaffleByCreator(createdBy: number): Promise<Raffle | null> {
+    const result = await this.pool.query(
+      `
+      UPDATE raffles
+      SET status = 'completed', completed_at = NOW()
+      WHERE id = (
+        SELECT id
+        FROM raffles
+        WHERE status IN ('created', 'open', 'drawing')
+          AND created_by = $1
+        ORDER BY id DESC
+        LIMIT 1
+      )
+      RETURNING id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      `,
+      [createdBy]
+    );
+
+    if (result.rowCount === 0) {
+      return null;
+    }
+
+    return this.mapRaffle(result.rows[0]);
+  }
+
   async getOpenRaffles(): Promise<Raffle[]> {
     const result = await this.pool.query(
       `
