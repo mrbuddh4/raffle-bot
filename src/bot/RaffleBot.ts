@@ -281,9 +281,27 @@ export class RaffleBot {
     }
 
     if (msg.chat.type !== 'private') {
+      const openRaffles = (await this.raffleService.getOpenRaffles()).filter((raffle) => raffle.status === 'open');
+      if (openRaffles.length === 0) {
+        await this.bot.sendMessage(msg.chat.id, 'No open raffle right now.');
+        return;
+      }
+
+      const raffleLines = openRaffles.map((raffle) => {
+        const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
+        const timeText = hoursLeft != null ? ` · ~${hoursLeft}h left` : '';
+        return `• *${raffle.title}* [${raffle.chain.toUpperCase()}] · winners: *${raffle.winnerCount}*${timeText}`;
+      });
+
       await this.bot.sendMessage(
         msg.chat.id,
-        'Tap *Enter Now* to confirm raffle entry.',
+        [
+          '🎟 *Ready to Enter Raffle*',
+          '',
+          ...raffleLines,
+          '',
+          'Tap *Enter Now* to confirm raffle entry.',
+        ].join('\n'),
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -1134,8 +1152,8 @@ export class RaffleBot {
         chatId,
         userId,
         pending.chain === 'evm'
-          ? 'Send ERC-20 token contract address (0x...).'
-          : 'Send SPL token mint address.',
+          ? 'What token do you want to drop? Send ERC-20 token contract address (0x...).'
+          : 'What token do you want to drop? Send SPL token mint address.',
         this.getAdminBackOptions(),
         query.message?.message_id
       );
@@ -1846,7 +1864,7 @@ export class RaffleBot {
         mode: 'token',
         tokenAddress,
       });
-      await this.renderAdminCard(msg.chat.id, userId, 'Send total token amount to distribute across all winners (human units, example: 500).', this.getAdminBackOptions());
+      await this.renderAdminCard(msg.chat.id, userId, 'How much total token amount should be distributed across all winners? (human units, example: 500).', this.getAdminBackOptions());
       return;
     }
   }
