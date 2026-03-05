@@ -996,10 +996,12 @@ export class RaffleBot {
     if (data === 'admin:execute_payout') {
       const raffle = await this.raffleService.getLastCompletedRaffleByCreator(userId);
       if (!raffle) {
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           chatId,
+          userId,
           'No completed raffle found in your account for payout. Draw your raffle first.',
-          this.getAdminBackOptions()
+          this.getAdminBackOptions(),
+          query.message?.message_id
         );
         return;
       }
@@ -1062,14 +1064,23 @@ export class RaffleBot {
       const execution = this.pendingExecutionByUser.get(userId);
       if (!execution) {
         this.pendingByUser.delete(userId);
-        await this.bot.sendMessage(chatId, 'No pending payout found. Please start again from admin panel.', this.getAdminBackOptions());
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          'No pending payout found. Please start again from admin panel.',
+          this.getAdminBackOptions(),
+          query.message?.message_id
+        );
         return;
       }
 
       try {
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           chatId,
-          `⏳ Sending ${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'} payouts to ${execution.targets.length} wallet(s)...`
+          userId,
+          `⏳ Sending ${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'} payouts to ${execution.targets.length} wallet(s)...`,
+          this.getAdminBackOptions(),
+          query.message?.message_id
         );
         const results = execution.mode === 'native'
           ? await this.payoutService.payoutNative(execution.chain, execution.amount, execution.targets, execution.signerSecret)
@@ -1082,15 +1093,23 @@ export class RaffleBot {
         this.pendingByUser.delete(userId);
         this.pendingExecutionByUser.delete(userId);
         const lines = results.map((result) => `#${result.rank} \`${result.walletAddress}\`\nTx: \`${result.txHash}\``).join('\n\n');
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           chatId,
+          userId,
           `✅ On-chain payout complete.\nMode: *${execution.mode.toUpperCase()}*\nFrom wallet: \`${execution.signerWalletAddress}\`\nAmount each: *${execution.amount}* (${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'})\n${execution.tokenAddress ? `Token: \`${execution.tokenAddress}\`\n` : ''}\n${lines}`,
-          this.getAdminBackOptions({ parse_mode: 'Markdown' })
+          this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+          query.message?.message_id
         );
       } catch (error: any) {
         this.pendingExecutionByUser.delete(userId);
         this.pendingByUser.delete(userId);
-        await this.bot.sendMessage(chatId, `❌ Payout failed: ${error?.message || 'unknown error'}`, this.getAdminBackOptions());
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          `❌ Payout failed: ${error?.message || 'unknown error'}`,
+          this.getAdminBackOptions(),
+          query.message?.message_id
+        );
       }
 
       return;
@@ -1564,21 +1583,22 @@ export class RaffleBot {
     if (pending.type === 'execute_payout_amount') {
       const amount = Number(text);
       if (!Number.isFinite(amount) || amount <= 0) {
-        await this.bot.sendMessage(msg.chat.id, 'Amount must be a positive number.');
+        await this.renderAdminCard(msg.chat.id, userId, 'Amount must be a positive number.', this.getAdminBackOptions());
         return;
       }
 
       const winners = await this.raffleService.getWinnersForPayout(pending.raffleId);
       if (winners.length === 0) {
         this.pendingByUser.delete(userId);
-        await this.bot.sendMessage(msg.chat.id, 'No winners found for payout.');
+        await this.renderAdminCard(msg.chat.id, userId, 'No winners found for payout.', this.getAdminBackOptions());
         return;
       }
 
       const signer = await this.adminPayoutWalletService.getWallet(userId, pending.chain, pending.mode);
       if (!signer) {
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           msg.chat.id,
+          userId,
           `No payout signer configured for *${pending.chain.toUpperCase()} ${pending.mode.toUpperCase()}*. Use /setpayout first.`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
@@ -1600,8 +1620,9 @@ export class RaffleBot {
       });
       this.pendingByUser.set(userId, { type: 'execute_payout_confirm' });
 
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         msg.chat.id,
+        userId,
         [
           '🧾 *Payout Preview*',
           `Chain: *${pending.chain.toUpperCase()}*`,
@@ -1634,26 +1655,29 @@ export class RaffleBot {
       if (decision === 'CANCEL') {
         this.pendingByUser.delete(userId);
         this.pendingExecutionByUser.delete(userId);
-        await this.bot.sendMessage(msg.chat.id, 'Payout cancelled.', this.getAdminBackOptions());
+        await this.renderAdminCard(msg.chat.id, userId, 'Payout cancelled.', this.getAdminBackOptions());
         return;
       }
 
       if (decision !== 'CONFIRM') {
-        await this.bot.sendMessage(msg.chat.id, 'Please type *CONFIRM* to execute or *CANCEL* to abort.', { parse_mode: 'Markdown' });
+        await this.renderAdminCard(msg.chat.id, userId, 'Please type *CONFIRM* to execute or *CANCEL* to abort.', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
         return;
       }
 
       const execution = this.pendingExecutionByUser.get(userId);
       if (!execution) {
         this.pendingByUser.delete(userId);
-        await this.bot.sendMessage(msg.chat.id, 'No pending payout found. Please start again from admin panel.', this.getAdminBackOptions());
+        await this.renderAdminCard(msg.chat.id, userId, 'No pending payout found. Please start again from admin panel.', this.getAdminBackOptions());
         return;
       }
 
       try {
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           msg.chat.id,
+          userId,
           `⏳ Sending ${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'} payouts to ${execution.targets.length} wallet(s)...`
+          ,
+          this.getAdminBackOptions()
         );
         const results = execution.mode === 'native'
           ? await this.payoutService.payoutNative(execution.chain, execution.amount, execution.targets, execution.signerSecret)
@@ -1666,15 +1690,16 @@ export class RaffleBot {
         this.pendingByUser.delete(userId);
         this.pendingExecutionByUser.delete(userId);
         const lines = results.map((result) => `#${result.rank} \`${result.walletAddress}\`\nTx: \`${result.txHash}\``).join('\n\n');
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           msg.chat.id,
+          userId,
           `✅ On-chain payout complete.\nMode: *${execution.mode.toUpperCase()}*\nFrom wallet: \`${execution.signerWalletAddress}\`\nAmount each: *${execution.amount}* (${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'})\n${execution.tokenAddress ? `Token: \`${execution.tokenAddress}\`\n` : ''}\n${lines}`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
       } catch (error: any) {
         this.pendingExecutionByUser.delete(userId);
         this.pendingByUser.delete(userId);
-        await this.bot.sendMessage(msg.chat.id, `❌ Payout failed: ${error?.message || 'unknown error'}`, this.getAdminBackOptions());
+        await this.renderAdminCard(msg.chat.id, userId, `❌ Payout failed: ${error?.message || 'unknown error'}`, this.getAdminBackOptions());
       }
 
       return;
@@ -1683,25 +1708,29 @@ export class RaffleBot {
     if (pending.type === 'execute_payout_mode') {
       const mode = text.trim().toLowerCase();
       if (mode !== 'native' && mode !== 'token') {
-        await this.bot.sendMessage(msg.chat.id, 'Invalid mode. Send `native` or `token`.', { parse_mode: 'Markdown' });
+        await this.renderAdminCard(msg.chat.id, userId, 'Invalid mode. Choose one using the buttons.', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
         return;
       }
 
       if (mode === 'native') {
         this.pendingByUser.set(userId, { type: 'execute_payout_amount', raffleId: pending.raffleId, chain: pending.chain, mode: 'native' });
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           msg.chat.id,
-          `Send native amount per winner for ${pending.chain.toUpperCase()} (example: 0.01).`
+          userId,
+          `Send native amount per winner for ${pending.chain.toUpperCase()} (example: 0.01).`,
+          this.getAdminBackOptions()
         );
         return;
       }
 
       this.pendingByUser.set(userId, { type: 'execute_payout_token_address', raffleId: pending.raffleId, chain: pending.chain });
-      await this.bot.sendMessage(
+      await this.renderAdminCard(
         msg.chat.id,
+        userId,
         pending.chain === 'evm'
           ? 'Send ERC-20 token contract address (0x...).'
-          : 'Send SPL token mint address.'
+          : 'Send SPL token mint address.',
+        this.getAdminBackOptions()
       );
       return;
     }
@@ -1709,11 +1738,13 @@ export class RaffleBot {
     if (pending.type === 'execute_payout_token_address') {
       const valid = isValidWalletForChain(text, pending.chain);
       if (!valid) {
-        await this.bot.sendMessage(
+        await this.renderAdminCard(
           msg.chat.id,
+          userId,
           pending.chain === 'evm'
             ? 'Invalid ERC-20 contract address.'
-            : 'Invalid SPL token mint address.'
+            : 'Invalid SPL token mint address.',
+          this.getAdminBackOptions()
         );
         return;
       }
@@ -1726,7 +1757,7 @@ export class RaffleBot {
         mode: 'token',
         tokenAddress,
       });
-      await this.bot.sendMessage(msg.chat.id, 'Send token amount per winner (human units, example: 50).');
+      await this.renderAdminCard(msg.chat.id, userId, 'Send token amount per winner (human units, example: 50).', this.getAdminBackOptions());
       return;
     }
   }
