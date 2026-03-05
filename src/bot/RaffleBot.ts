@@ -16,8 +16,10 @@ type PendingState =
   | { type: 'edit_wallet'; chain: WalletChain }
   | { type: 'create_raffle_title'; chatId: number }
   | { type: 'create_raffle_winners'; chatId: number; title: string }
-  | { type: 'create_raffle_chain'; chatId: number; title: string; winnerCount: number }
-  | { type: 'create_raffle_duration'; chatId: number; title: string; winnerCount: number; chain: WalletChain }
+  | { type: 'create_raffle_chain'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean }
+  | { type: 'create_raffle_duration'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain }
+  | { type: 'create_raffle_reward_token'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number }
+  | { type: 'create_raffle_reward_amount'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number; rewardToken: string }
   | { type: 'csv_upload' }
   | { type: 'set_payout_chain' }
   | { type: 'set_payout_mode'; chain: WalletChain }
@@ -289,8 +291,16 @@ export class RaffleBot {
 
       const raffleLines = openRaffles.map((raffle) => {
         const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
-        const timeText = hoursLeft != null ? ` · ~${hoursLeft}h left` : '';
-        return `• *${raffle.title}* [${raffle.chain.toUpperCase()}] · winners: *${raffle.winnerCount}*${timeText}`;
+        const utcEndText = raffle.endsAt ? raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
+        const timeText = hoursLeft != null ? `~${hoursLeft}h left` : null;
+        const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
+          ? ` · reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`
+          : '';
+        return [
+          `• *${raffle.title}*`,
+          `${raffle.chain.toUpperCase()} · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${rewardText}`,
+          utcEndText ? `${timeText ? `${timeText} · ` : ''}ends: *${utcEndText}*` : timeText,
+        ].filter(Boolean).join('\n');
       });
 
       await this.bot.sendMessage(
@@ -351,8 +361,16 @@ export class RaffleBot {
     const fundingLink = process.env.FUNDING_LINK?.trim();
     const lines = openRaffles.map((raffle) => {
       const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
-      const timeText = hoursLeft != null ? ` · ~${hoursLeft}h left` : '';
-      return `• *${raffle.title}* [${raffle.chain.toUpperCase()}] · winners: *${raffle.winnerCount}*${timeText}`;
+      const utcEndText = raffle.endsAt ? raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
+      const timeText = hoursLeft != null ? `~${hoursLeft}h left` : null;
+      const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
+        ? ` · reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`
+        : '';
+      return [
+        `• *${raffle.title}*`,
+        `${raffle.chain.toUpperCase()} · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${rewardText}`,
+        utcEndText ? `${timeText ? `${timeText} · ` : ''}ends: *${utcEndText}*` : timeText,
+      ].filter(Boolean).join('\n');
     });
 
     await this.bot.sendMessage(
@@ -610,9 +628,12 @@ export class RaffleBot {
       return;
     }
 
-    const lines = raffles.map(
-      (raffle) => `#${raffle.id} · *${raffle.title}* · ${raffle.status.toUpperCase()} · ${raffle.chain.toUpperCase()} · winners: ${raffle.winnerCount}`
-    );
+    const lines = raffles.map((raffle) => {
+      const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
+        ? ` · reward: ${raffle.rewardTotalAmount} ${raffle.rewardToken}`
+        : '';
+      return `#${raffle.id} · *${raffle.title}* · ${raffle.status.toUpperCase()} · ${raffle.chain.toUpperCase()} · winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}${rewardText}`;
+    });
 
     await this.renderAdminCard(
       chatId,
@@ -632,12 +653,15 @@ export class RaffleBot {
   private async sendAdminPanel(chatId: number, adminId: number, preferredMessageId?: number): Promise<void> {
 
     const raffle = await this.raffleService.getActiveRaffleByCreator(adminId);
+    const rewardText = raffle && raffle.rewardToken && raffle.rewardTotalAmount != null
+      ? ` · Reward: ${raffle.rewardTotalAmount} ${raffle.rewardToken}`
+      : '';
 
     await this.renderAdminCard(
       chatId,
       adminId,
       raffle
-        ? `🛠 Admin Panel\nYour active raffle: *${raffle.title}* (${raffle.status}) [${raffle.chain.toUpperCase()}]`
+        ? `🛠 Admin Panel\nYour active raffle: *${raffle.title}* (${raffle.status}) [${raffle.chain.toUpperCase()}] · winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}${rewardText}`
         : '🛠 Admin Panel\nYou have no active raffle.',
       {
         parse_mode: 'Markdown',
@@ -847,7 +871,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         chatId,
         userId,
-        '➕ *Create Raffle*\n\nStep 1/4 — Send raffle title.',
+        '➕ *Create Raffle*\n\nStep 1/6 — Send raffle title.',
         this.getAdminBackOptions({ parse_mode: 'Markdown' }),
         query.message?.message_id
       );
@@ -920,9 +944,50 @@ export class RaffleBot {
         chatId: pending.chatId,
         title: pending.title,
         winnerCount: pending.winnerCount,
+        allEntrantsWin: pending.allEntrantsWin,
         chain,
       });
-      await this.bot.sendMessage(chatId, 'How many hours should this raffle run? Send a positive whole number (example: 24).');
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        '➕ *Create Raffle*\n\nStep 4/6 — How many hours should this raffle run? Send a positive whole number (example: 24).',
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:create_raffle_winners:all') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'create_raffle_winners') {
+        return;
+      }
+
+      this.pendingByUser.set(userId, {
+        type: 'create_raffle_chain',
+        chatId: pending.chatId,
+        title: pending.title,
+        winnerCount: 1,
+        allEntrantsWin: true,
+      });
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        '➕ *Create Raffle*\n\nStep 3/6 — Choose raffle chain:\nWinners: *All entrants*',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🟣 EVM', callback_data: 'admin:create_raffle_chain:evm' },
+                { text: '🟢 Solana', callback_data: 'admin:create_raffle_chain:solana' },
+              ],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        },
+        query.message?.message_id
+      );
       return;
     }
 
@@ -1582,19 +1647,52 @@ export class RaffleBot {
 
     if (pending.type === 'create_raffle_title') {
       this.pendingByUser.set(userId, { type: 'create_raffle_winners', chatId: pending.chatId, title: text });
-      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 2/4 — How many winners? Send a number (example: 10).', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
+      await this.renderAdminCard(
+        msg.chat.id,
+        userId,
+        '➕ *Create Raffle*\n\nStep 2/6 — How many winners? Send a number (example: 10) or choose *All Entrants*.',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '♾ All Entrants', callback_data: 'admin:create_raffle_winners:all' }],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        }
+      );
       return;
     }
 
     if (pending.type === 'create_raffle_winners') {
-      const winnerCount = Number(text);
-      if (!Number.isInteger(winnerCount) || winnerCount <= 0) {
-        await this.renderAdminCard(msg.chat.id, userId, 'Winner count must be a positive whole number.', this.getAdminBackOptions());
+      const allEntrantsWin = text.trim().toLowerCase() === 'all';
+      const winnerCount = allEntrantsWin ? 1 : Number(text);
+      if (!allEntrantsWin && (!Number.isInteger(winnerCount) || winnerCount <= 0)) {
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          'Winner count must be a positive whole number, or send *all*.',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '♾ All Entrants', callback_data: 'admin:create_raffle_winners:all' }],
+                [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+              ],
+            },
+          }
+        );
         return;
       }
 
-      this.pendingByUser.set(userId, { type: 'create_raffle_chain', chatId: pending.chatId, title: pending.title, winnerCount });
-      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 3/4 — Choose raffle chain:', {
+      this.pendingByUser.set(userId, {
+        type: 'create_raffle_chain',
+        chatId: pending.chatId,
+        title: pending.title,
+        winnerCount,
+        allEntrantsWin,
+      });
+      await this.renderAdminCard(msg.chat.id, userId, `➕ *Create Raffle*\n\nStep 3/6 — Choose raffle chain:\nWinners: *${allEntrantsWin ? 'All entrants' : winnerCount}*`, {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
@@ -1621,9 +1719,10 @@ export class RaffleBot {
         chatId: pending.chatId,
         title: pending.title,
         winnerCount: pending.winnerCount,
+        allEntrantsWin: pending.allEntrantsWin,
         chain,
       });
-      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 4/4 — How many hours should this raffle run? Send a positive whole number (example: 24).', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
+      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 4/6 — How many hours should this raffle run? Send a positive whole number (example: 24).', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
       return;
     }
 
@@ -1634,19 +1733,73 @@ export class RaffleBot {
         return;
       }
 
+      this.pendingByUser.set(userId, {
+        type: 'create_raffle_reward_token',
+        chatId: pending.chatId,
+        title: pending.title,
+        winnerCount: pending.winnerCount,
+        allEntrantsWin: pending.allEntrantsWin,
+        chain: pending.chain,
+        durationHours,
+      });
+      await this.renderAdminCard(
+        msg.chat.id,
+        userId,
+        '➕ *Create Raffle*\n\nStep 5/6 — What token will be dropped to winners? Send token name/symbol (example: USDC).',
+        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      );
+      return;
+    }
+
+    if (pending.type === 'create_raffle_reward_token') {
+      const rewardToken = text.trim();
+      if (!rewardToken) {
+        await this.renderAdminCard(msg.chat.id, userId, 'Reward token cannot be empty.', this.getAdminBackOptions());
+        return;
+      }
+
+      this.pendingByUser.set(userId, {
+        type: 'create_raffle_reward_amount',
+        chatId: pending.chatId,
+        title: pending.title,
+        winnerCount: pending.winnerCount,
+        allEntrantsWin: pending.allEntrantsWin,
+        chain: pending.chain,
+        durationHours: pending.durationHours,
+        rewardToken,
+      });
+      await this.renderAdminCard(
+        msg.chat.id,
+        userId,
+        `➕ *Create Raffle*\n\nStep 6/6 — How much *${rewardToken}* total will be distributed? Send a positive number (example: 1000).`,
+        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      );
+      return;
+    }
+
+    if (pending.type === 'create_raffle_reward_amount') {
+      const rewardTotalAmount = Number(text);
+      if (!Number.isFinite(rewardTotalAmount) || rewardTotalAmount <= 0) {
+        await this.renderAdminCard(msg.chat.id, userId, 'Reward total amount must be a positive number.', this.getAdminBackOptions());
+        return;
+      }
+
       const raffle = await this.raffleService.createRaffle(
         pending.title,
         pending.winnerCount,
+        pending.allEntrantsWin,
         pending.chain,
         userId,
         pending.chatId,
-        durationHours
+        pending.durationHours,
+        pending.rewardToken,
+        rewardTotalAmount
       );
       this.pendingByUser.delete(userId);
       await this.renderAdminCard(
         msg.chat.id,
         userId,
-        `🎉 Raffle created!\nTitle: *${raffle.title}*\nWinners: *${raffle.winnerCount}*\nChain: *${raffle.chain.toUpperCase()}*\nDuration: *${durationHours} hour(s)*\nUsers can now press *Enter*.\nWinner selection is automatic and random once target entries are reached.`,
+        `🎉 Raffle created!\nTitle: *${raffle.title}*\nWinners: *${pending.allEntrantsWin ? 'All entrants' : raffle.winnerCount}*\nChain: *${raffle.chain.toUpperCase()}*\nDuration: *${pending.durationHours} hour(s)*\nReward: *${rewardTotalAmount} ${pending.rewardToken}*\nUsers can now press *Enter*.\nWinner selection is automatic and random once target entries are reached.`,
         this.getAdminBackOptions({ parse_mode: 'Markdown' })
       );
 
@@ -1876,8 +2029,14 @@ export class RaffleBot {
     }
 
     const entries = await this.raffleService.getEntryCount(raffle.id);
-    if (!forceAtEnd && entries < raffle.winnerCount) {
-      return;
+    if (!forceAtEnd) {
+      if (raffle.allEntrantsWin) {
+        return;
+      }
+
+      if (entries < raffle.winnerCount) {
+        return;
+      }
     }
 
     const claimed = await this.raffleService.claimOpenRaffleForDrawing(raffle.id);
@@ -1940,7 +2099,7 @@ export class RaffleBot {
     }
   }
 
-  private async announceRaffleGoLive(raffle: { title: string; chain: WalletChain; winnerCount: number; endsAt: Date | null; announcementChatId: number | null }): Promise<void> {
+  private async announceRaffleGoLive(raffle: { title: string; chain: WalletChain; winnerCount: number; allEntrantsWin: boolean; endsAt: Date | null; announcementChatId: number | null; rewardToken: string | null; rewardTotalAmount: number | null }): Promise<void> {
     const chatId = raffle.announcementChatId;
     if (!chatId) {
       return;
@@ -1952,12 +2111,17 @@ export class RaffleBot {
     const hoursText = raffle.endsAt
       ? `Ends in ~*${Math.max(1, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000))}h*`
       : null;
+    const utcEndText = raffle.endsAt
+      ? `Ends at: *${raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC')}*`
+      : null;
 
     const caption = [
       `🚨 *RAFFLE GO LIVE*`,
       `*${raffle.title}* [${raffle.chain.toUpperCase()}]`,
-      `Winners: *${raffle.winnerCount}*`,
+      `Winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
+      raffle.rewardToken && raffle.rewardTotalAmount != null ? `Reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*` : null,
       hoursText,
+      utcEndText,
       registerLink ? `Join/Register: ${registerLink}` : null,
       fundingLink ? `Get Funded: ${fundingLink}` : null,
     ].filter(Boolean).join('\n');

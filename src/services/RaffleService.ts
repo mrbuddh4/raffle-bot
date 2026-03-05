@@ -5,12 +5,15 @@ export interface Raffle {
   id: number;
   title: string;
   winnerCount: number;
+  allEntrantsWin: boolean;
   chain: WalletChain;
   status: 'created' | 'open' | 'drawing' | 'completed';
   createdBy: number;
   announcementChatId: number | null;
   endsAt: Date | null;
   nextHourlyAlertAt: Date | null;
+  rewardToken: string | null;
+  rewardTotalAmount: number | null;
 }
 
 export interface WinnerResult {
@@ -27,10 +30,13 @@ export class RaffleService {
   async createRaffle(
     title: string,
     winnerCount: number,
+    allEntrantsWin: boolean,
     chain: WalletChain,
     createdBy: number,
     announcementChatId: number,
-    durationHours: number
+    durationHours: number,
+    rewardToken: string,
+    rewardTotalAmount: number
   ): Promise<Raffle> {
     await this.pool.query(
       `
@@ -51,9 +57,12 @@ export class RaffleService {
         status,
         created_by,
         announcement_chat_id,
+        all_entrants_win,
         opened_at,
         ends_at,
-        next_hourly_alert_at
+        next_hourly_alert_at,
+        reward_token,
+        reward_total_amount
       )
       VALUES (
         $1,
@@ -62,13 +71,16 @@ export class RaffleService {
         'open',
         $4,
         $5,
+        $6,
         NOW(),
-        NOW() + make_interval(hours => $6),
-        date_trunc('hour', NOW()) + INTERVAL '1 hour'
+        NOW() + make_interval(hours => $7),
+        date_trunc('hour', NOW()) + INTERVAL '1 hour',
+        $8
+        $9
       )
-      RETURNING id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      RETURNING id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       `,
-      [title, winnerCount, chain, createdBy, announcementChatId, durationHours]
+      [title, winnerCount, chain, createdBy, announcementChatId, allEntrantsWin, durationHours, rewardToken, rewardTotalAmount]
     );
 
     return this.mapRaffle(result.rows[0]);
@@ -77,7 +89,7 @@ export class RaffleService {
   async getActiveRaffle(): Promise<Raffle | null> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE status IN ('created', 'open', 'drawing')
       ORDER BY id DESC
@@ -95,7 +107,7 @@ export class RaffleService {
   async getRaffleById(raffleId: number): Promise<Raffle | null> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE id = $1
       LIMIT 1
@@ -127,7 +139,7 @@ export class RaffleService {
   async getActiveRaffleByCreator(createdBy: number): Promise<Raffle | null> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE status IN ('created', 'open', 'drawing')
         AND created_by = $1
@@ -157,7 +169,7 @@ export class RaffleService {
         ORDER BY id DESC
         LIMIT 1
       )
-      RETURNING id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      RETURNING id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       `,
       [createdBy]
     );
@@ -172,7 +184,7 @@ export class RaffleService {
   async getOpenRaffles(): Promise<Raffle[]> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE status IN ('created', 'open', 'drawing')
       ORDER BY id DESC
@@ -185,7 +197,7 @@ export class RaffleService {
   async getRafflesByCreator(createdBy: number, limit = 10): Promise<Raffle[]> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE created_by = $1
       ORDER BY id DESC
@@ -230,7 +242,7 @@ export class RaffleService {
   async getLastCompletedRaffle(): Promise<Raffle | null> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE status = 'completed'
       ORDER BY id DESC
@@ -248,7 +260,7 @@ export class RaffleService {
   async getLastCompletedRaffleByCreator(createdBy: number): Promise<Raffle | null> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE status = 'completed'
         AND created_by = $1
@@ -268,7 +280,7 @@ export class RaffleService {
   async getRafflesNeedingHourlyAlert(now: Date): Promise<Raffle[]> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE status = 'open'
         AND ends_at IS NOT NULL
@@ -297,7 +309,7 @@ export class RaffleService {
   async getRafflesPastEnd(now: Date): Promise<Raffle[]> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, ends_at, next_hourly_alert_at
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
       FROM raffles
       WHERE status = 'open'
         AND ends_at IS NOT NULL
@@ -330,26 +342,38 @@ export class RaffleService {
   }
 
   async drawWinners(raffleId: number): Promise<WinnerResult[]> {
-    const raffleResult = await this.pool.query(`SELECT id, winner_count FROM raffles WHERE id = $1`, [raffleId]);
+    const raffleResult = await this.pool.query(`SELECT id, winner_count, all_entrants_win FROM raffles WHERE id = $1`, [raffleId]);
     if (raffleResult.rowCount === 0) {
       throw new Error('Raffle not found');
     }
 
     const winnerCount = Number(raffleResult.rows[0].winner_count);
+    const allEntrantsWin = Boolean(raffleResult.rows[0].all_entrants_win);
 
     await this.pool.query(`UPDATE raffles SET status = 'drawing' WHERE id = $1`, [raffleId]);
 
-    const entries = await this.pool.query(
-      `
-      SELECT u.id, u.display_username, e.wallet_chain, e.wallet_address
-      FROM raffle_entries e
-      INNER JOIN users u ON u.id = e.user_id
-      WHERE e.raffle_id = $1
-      ORDER BY random()
-      LIMIT $2
-      `,
-      [raffleId, winnerCount]
-    );
+    const entries = allEntrantsWin
+      ? await this.pool.query(
+          `
+          SELECT u.id, u.display_username, e.wallet_chain, e.wallet_address
+          FROM raffle_entries e
+          INNER JOIN users u ON u.id = e.user_id
+          WHERE e.raffle_id = $1
+          ORDER BY random()
+          `,
+          [raffleId]
+        )
+      : await this.pool.query(
+          `
+          SELECT u.id, u.display_username, e.wallet_chain, e.wallet_address
+          FROM raffle_entries e
+          INNER JOIN users u ON u.id = e.user_id
+          WHERE e.raffle_id = $1
+          ORDER BY random()
+          LIMIT $2
+          `,
+          [raffleId, winnerCount]
+        );
 
     await this.pool.query(`DELETE FROM raffle_winners WHERE raffle_id = $1`, [raffleId]);
 
@@ -412,12 +436,15 @@ export class RaffleService {
       id: Number(row.id),
       title: row.title,
       winnerCount: Number(row.winner_count),
+      allEntrantsWin: Boolean(row.all_entrants_win),
       chain: row.chain,
       status: row.status,
       createdBy: Number(row.created_by),
       announcementChatId: row.announcement_chat_id != null ? Number(row.announcement_chat_id) : null,
       endsAt: row.ends_at ? new Date(row.ends_at) : null,
       nextHourlyAlertAt: row.next_hourly_alert_at ? new Date(row.next_hourly_alert_at) : null,
+      rewardToken: row.reward_token ?? null,
+      rewardTotalAmount: row.reward_total_amount != null ? Number(row.reward_total_amount) : null,
     };
   }
 }

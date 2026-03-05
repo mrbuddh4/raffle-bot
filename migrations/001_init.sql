@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS raffles (
   status TEXT NOT NULL CHECK (status IN ('created', 'open', 'drawing', 'completed')) DEFAULT 'created',
   created_by BIGINT NOT NULL,
   announcement_chat_id BIGINT,
+  all_entrants_win BOOLEAN NOT NULL DEFAULT FALSE,
+  reward_token TEXT,
+  reward_total_amount NUMERIC,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   opened_at TIMESTAMPTZ,
   ends_at TIMESTAMPTZ,
@@ -137,6 +140,9 @@ ALTER TABLE raffles ALTER COLUMN chain SET NOT NULL;
 ALTER TABLE raffles ADD COLUMN IF NOT EXISTS announcement_chat_id BIGINT;
 ALTER TABLE raffles ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ;
 ALTER TABLE raffles ADD COLUMN IF NOT EXISTS next_hourly_alert_at TIMESTAMPTZ;
+ALTER TABLE raffles ADD COLUMN IF NOT EXISTS all_entrants_win BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE raffles ADD COLUMN IF NOT EXISTS reward_token TEXT;
+ALTER TABLE raffles ADD COLUMN IF NOT EXISTS reward_total_amount NUMERIC;
 
 DO $$
 BEGIN
