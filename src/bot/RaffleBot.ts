@@ -242,10 +242,6 @@ export class RaffleBot {
   }
 
   private async beginRegistration(msg: Message): Promise<void> {
-    if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
-      return;
-    }
-
     if (msg.chat.type !== 'private') {
       await this.bot.sendMessage(
         msg.chat.id,
@@ -285,16 +281,21 @@ export class RaffleBot {
         return;
       }
 
+      const entryCounts = new Map<number, number>(
+        await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
+      );
+
       const raffleLines = openRaffles.map((raffle) => {
         const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
         const utcEndText = raffle.endsAt ? raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
         const timeText = hoursLeft != null ? `~${hoursLeft}h left` : null;
+        const enteredText = ` · entered: *${entryCounts.get(raffle.id) ?? 0}*`;
         const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
           ? ` · reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`
           : '';
         return [
           `• *${raffle.title}*`,
-          `${raffle.chain.toUpperCase()} · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${rewardText}`,
+          `${raffle.chain.toUpperCase()} · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${enteredText}${rewardText}`,
           utcEndText ? `${timeText ? `${timeText} · ` : ''}ends: *${utcEndText}*` : timeText,
         ].filter(Boolean).join('\n');
       });
@@ -353,18 +354,23 @@ export class RaffleBot {
       return;
     }
 
+    const entryCounts = new Map<number, number>(
+      await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
+    );
+
     const registerLink = this.getRegisterLink();
     const fundingLink = process.env.FUNDING_LINK?.trim();
     const lines = openRaffles.map((raffle) => {
       const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
       const utcEndText = raffle.endsAt ? raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
       const timeText = hoursLeft != null ? `~${hoursLeft}h left` : null;
+      const enteredText = ` · entered: *${entryCounts.get(raffle.id) ?? 0}*`;
       const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
         ? ` · reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`
         : '';
       return [
         `• *${raffle.title}*`,
-        `${raffle.chain.toUpperCase()} · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${rewardText}`,
+        `${raffle.chain.toUpperCase()} · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${enteredText}${rewardText}`,
         utcEndText ? `${timeText ? `${timeText} · ` : ''}ends: *${utcEndText}*` : timeText,
       ].filter(Boolean).join('\n');
     });
@@ -2062,41 +2068,6 @@ export class RaffleBot {
 
   private async processTimedAnnouncements(): Promise<void> {
     const now = new Date();
-
-    const hourlyAlerts = await this.raffleService.getRafflesNeedingHourlyAlert(now);
-    for (const raffle of hourlyAlerts) {
-      if (!raffle.announcementChatId || !raffle.endsAt) {
-        await this.raffleService.bumpNextHourlyAlert(raffle.id, new Date(now.getTime() + 3600000));
-        continue;
-      }
-
-      const remainingMs = raffle.endsAt.getTime() - now.getTime();
-      if (remainingMs > 0) {
-        const minutesLeft = Math.max(1, Math.ceil(remainingMs / 60000));
-        const countdownText = minutesLeft < 60
-          ? `*${minutesLeft}m* left`
-          : `*${Math.ceil(minutesLeft / 60)}h* left`;
-        const registerLink = this.getRegisterLink();
-        await this.bot.sendMessage(
-          raffle.announcementChatId,
-          [
-            `⏰ *${raffle.title}* countdown: ${countdownText}`,
-            registerLink ? `Join: ${registerLink}` : null,
-          ].filter(Boolean).join('\n'),
-          { parse_mode: 'Markdown' }
-        );
-
-        const nextDelayMs = minutesLeft <= 60
-          ? 60000
-          : minutesLeft <= 360
-            ? 900000
-            : 3600000;
-        await this.raffleService.bumpNextHourlyAlert(raffle.id, new Date(now.getTime() + nextDelayMs));
-        continue;
-      }
-
-      await this.raffleService.bumpNextHourlyAlert(raffle.id, new Date(now.getTime() + 3600000));
-    }
 
     const endedRaffles = await this.raffleService.getRafflesPastEnd(now);
     for (const raffle of endedRaffles) {
