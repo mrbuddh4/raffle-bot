@@ -891,6 +891,7 @@ export class RaffleBot {
             [{ text: '🗂 Payroll Groups', callback_data: 'admin:payroll_groups' }],
             [{ text: '✅ Mark Winner Paid', callback_data: 'admin:mark_paid' }],
             [{ text: '📄 Upload CSV', callback_data: 'admin:csv' }],
+            [{ text: '🏠 Home', callback_data: 'user:home' }],
           ],
         },
       },
