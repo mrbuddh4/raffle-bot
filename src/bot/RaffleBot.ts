@@ -227,6 +227,11 @@ export class RaffleBot {
       return;
     }
 
+    if (startPayload === 'register') {
+      await this.beginRegistration(msg);
+      return;
+    }
+
     await this.sendHomeCard(chatId, userId, msg.message_id);
   }
 
@@ -297,9 +302,17 @@ export class RaffleBot {
 
   private async beginRegistration(msg: Message): Promise<void> {
     if (msg.chat.type !== 'private') {
+      const startLink = this.getBotStartLink('register') ?? this.getRegisterLink();
       await this.bot.sendMessage(
         msg.chat.id,
-        'For privacy, wallet registration is only available in DM. Please message me directly with /register.'
+        'For privacy, wallet registration is only available in DM. Please message me directly with /register.',
+        startLink
+          ? {
+              reply_markup: {
+                inline_keyboard: [[{ text: '📝 Register', url: startLink }]],
+              },
+            }
+          : undefined
       );
       return;
     }
@@ -2798,6 +2811,15 @@ export class RaffleBot {
     }
 
     return null;
+  }
+
+  private getBotStartLink(payload: string): string | null {
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim();
+    if (!botUsername) {
+      return null;
+    }
+
+    return `https://t.me/${botUsername.replace(/^@/, '')}?start=${encodeURIComponent(payload)}`;
   }
 
   private async sendEnterViaDmPrompt(chatId: number): Promise<void> {
