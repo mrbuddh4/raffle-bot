@@ -488,11 +488,12 @@ export class RaffleBot {
     }
 
     const enteredRaffles = await this.raffleService.getRafflesEnteredByUser(user.id, 20);
-    if (enteredRaffles.length === 0) {
+    const activeEnteredRaffles = enteredRaffles.filter((raffle) => raffle.status === 'open' || raffle.status === 'drawing');
+    if (activeEnteredRaffles.length === 0) {
       await this.renderUserCard(
         chatId,
         telegramUserId,
-        '📋 *My Raffles*\n\nYou have not entered any raffles yet.',
+        '📋 *My Raffles*\n\nYou have no active raffles entered right now.',
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -504,7 +505,7 @@ export class RaffleBot {
       return;
     }
 
-    const lines = enteredRaffles.map((raffle) => {
+    const lines = activeEnteredRaffles.map((raffle) => {
       const status = raffle.status.toUpperCase();
       const countdown = raffle.status === 'open' ? this.formatTimeRemaining(raffle.endsAt) : null;
       const enteredAt = raffle.enteredAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
