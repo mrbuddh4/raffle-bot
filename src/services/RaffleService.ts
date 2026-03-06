@@ -87,6 +87,7 @@ export class RaffleService {
         opened_at,
         ends_at,
         next_hourly_alert_at,
+        alerts_sent_count,
         reward_token,
         reward_total_amount
       )
@@ -100,7 +101,8 @@ export class RaffleService {
         $6,
         NOW(),
         NOW() + make_interval(hours => $7),
-        NOW() + INTERVAL '10 minutes',
+        NOW() + make_interval(secs => GREATEST(60, ($7 * 3600.0 / 6)::int)),
+        0,
         $8,
         $9
       )
@@ -388,6 +390,7 @@ export class RaffleService {
         AND ends_at IS NOT NULL
         AND announcement_chat_id IS NOT NULL
         AND next_hourly_alert_at IS NOT NULL
+        AND alerts_sent_count < 5
         AND next_hourly_alert_at <= $1
       ORDER BY next_hourly_alert_at ASC
       `,
@@ -405,6 +408,48 @@ export class RaffleService {
       WHERE id = $1
       `,
       [raffleId, nextAlertAt]
+    );
+  }
+
+  async advanceRaffleAlertSchedule(raffleId: number, totalAlerts = 5): Promise<void> {
+    const stateResult = await this.pool.query(
+      `
+      SELECT opened_at, ends_at, alerts_sent_count
+      FROM raffles
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [raffleId]
+    );
+
+    if (stateResult.rowCount === 0) {
+      return;
+    }
+
+    const state = stateResult.rows[0];
+    const sentCount = Number(state.alerts_sent_count ?? 0) + 1;
+    const openedAt = new Date(state.opened_at);
+    const endsAt = state.ends_at ? new Date(state.ends_at) : null;
+
+    let nextAlertAt: Date | null = null;
+    if (endsAt && sentCount < totalAlerts) {
+      const durationMs = endsAt.getTime() - openedAt.getTime();
+      const intervalMs = Math.max(60_000, durationMs / (totalAlerts + 1));
+      const nextMs = openedAt.getTime() + intervalMs * (sentCount + 1);
+      if (nextMs < endsAt.getTime()) {
+        nextAlertAt = new Date(nextMs);
+      }
+    }
+
+    await this.pool.query(
+      `
+      UPDATE raffles
+      SET alerts_sent_count = $2,
+          next_hourly_alert_at = $3,
+          updated_at = NOW()
+      WHERE id = $1
+      `,
+      [raffleId, sentCount, nextAlertAt]
     );
   }
 

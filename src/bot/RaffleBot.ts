@@ -3001,8 +3001,7 @@ export class RaffleBot {
     const liveRafflesNeedingAlert = await this.raffleService.getRafflesNeedingHourlyAlert(now);
     for (const raffle of liveRafflesNeedingAlert) {
       await this.announceRaffleGoLive(raffle);
-      const nextAlertAt = new Date(now.getTime() + 10 * 60 * 1000);
-      await this.raffleService.bumpNextHourlyAlert(raffle.id, nextAlertAt);
+      await this.raffleService.advanceRaffleAlertSchedule(raffle.id, 5);
     }
   }
 
