@@ -74,7 +74,7 @@ export class RaffleService {
         $6,
         NOW(),
         NOW() + make_interval(hours => $7),
-        NOW() + INTERVAL '5 minutes',
+        NOW() + INTERVAL '10 minutes',
         $8,
         $9
       )

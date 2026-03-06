@@ -2794,6 +2794,13 @@ export class RaffleBot {
     for (const raffle of endedRaffles) {
       await this.maybeAutoDrawRaffle(raffle.id, true);
     }
+
+    const liveRafflesNeedingAlert = await this.raffleService.getRafflesNeedingHourlyAlert(now);
+    for (const raffle of liveRafflesNeedingAlert) {
+      await this.announceRaffleGoLive(raffle);
+      const nextAlertAt = new Date(now.getTime() + 10 * 60 * 1000);
+      await this.raffleService.bumpNextHourlyAlert(raffle.id, nextAlertAt);
+    }
   }
 
   private async announceRaffleGoLive(raffle: { title: string; chain: WalletChain; winnerCount: number; allEntrantsWin: boolean; endsAt: Date | null; announcementChatId: number | null; rewardToken: string | null; rewardTotalAmount: number | null }): Promise<void> {
