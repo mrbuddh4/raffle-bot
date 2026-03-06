@@ -3053,8 +3053,19 @@ export class RaffleBot {
       registerStartLink ? { text: '📝 Register', url: registerStartLink } : null,
     ].filter((button): button is { text: string; url: string } => Boolean(button));
 
-    const goLiveReplyMarkup = goLiveButtons.length > 0
-      ? { inline_keyboard: [goLiveButtons] }
+    const communityButtons = [
+      { text: '💸 GET FUNDED', url: 'https://hyperpaxeer.com/' },
+      { text: '📣 JOIN TELEGRAM', url: 'https://t.me/paxeernetwork' },
+    ];
+
+    const goLiveKeyboardRows: Array<Array<{ text: string; url: string }>> = [];
+    if (goLiveButtons.length > 0) {
+      goLiveKeyboardRows.push(goLiveButtons);
+    }
+    goLiveKeyboardRows.push(communityButtons);
+
+    const goLiveReplyMarkup = goLiveKeyboardRows.length > 0
+      ? { inline_keyboard: goLiveKeyboardRows }
       : undefined;
 
     const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
