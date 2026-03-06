@@ -296,52 +296,7 @@ export class RaffleBot {
       return;
     }
 
-    if (msg.chat.type !== 'private') {
-      const openRaffles = (await this.raffleService.getOpenRaffles()).filter((raffle) => raffle.status === 'open');
-      if (openRaffles.length === 0) {
-        await this.bot.sendMessage(msg.chat.id, 'No open raffle right now.');
-        return;
-      }
-
-      const entryCounts = new Map<number, number>(
-        await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
-      );
-
-      const raffleLines = openRaffles.map((raffle) => {
-        const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
-        const utcEndText = raffle.endsAt ? raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
-        const timeText = hoursLeft != null ? `~${hoursLeft}h left` : null;
-        const enteredText = ` · entered: *${entryCounts.get(raffle.id) ?? 0}*`;
-        const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
-          ? ` · reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`
-          : '';
-        return [
-          `• *${raffle.title}*`,
-          `${raffle.chain.toUpperCase()} · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${enteredText}${rewardText}`,
-          utcEndText ? `${timeText ? `${timeText} · ` : ''}ends: *${utcEndText}*` : timeText,
-        ].filter(Boolean).join('\n');
-      });
-
-      await this.bot.sendMessage(
-        msg.chat.id,
-        [
-          '🎟 *Ready to Enter Raffle*',
-          '',
-          ...raffleLines,
-          '',
-          'Tap *Enter Now* to confirm raffle entry.',
-        ].join('\n'),
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [[{ text: '✅ Enter Now', callback_data: 'user:enter' }]],
-          },
-        }
-      );
-      return;
-    }
-
-    await this.sendHomeCard(msg.chat.id, userId, msg.message_id);
+    await this.sendEnterPicker(msg.chat.id, userId, msg.message_id, msg.chat.type === 'private');
   }
 
   private async handleProfile(msg: Message): Promise<void> {
@@ -445,7 +400,7 @@ export class RaffleBot {
     );
   }
 
-  private async enterActiveRaffle(msg: Message): Promise<void> {
+  private async enterActiveRaffle(msg: Message, specificRaffleId?: number): Promise<void> {
     const userId = msg.from?.id;
     if (!userId) return;
 
@@ -461,7 +416,7 @@ export class RaffleBot {
       return;
     }
 
-    const eligibleRaffles = openRaffles.filter((raffle) => Boolean(this.getUserWalletForChain(user, raffle.chain)));
+    let eligibleRaffles = openRaffles.filter((raffle) => Boolean(this.getUserWalletForChain(user, raffle.chain)));
     if (eligibleRaffles.length === 0) {
       await this.bot.sendMessage(
         msg.chat.id,
@@ -469,6 +424,14 @@ export class RaffleBot {
         { parse_mode: 'Markdown' }
       );
       return;
+    }
+
+    if (specificRaffleId != null) {
+      eligibleRaffles = eligibleRaffles.filter((raffle) => raffle.id === specificRaffleId);
+      if (eligibleRaffles.length === 0) {
+        await this.bot.sendMessage(msg.chat.id, 'That raffle is not open or your saved wallet does not match its chain.');
+        return;
+      }
     }
 
     const enteredTitles: string[] = [];
@@ -497,7 +460,9 @@ export class RaffleBot {
     if (enteredTitles.length === 0) {
       await this.bot.sendMessage(
         msg.chat.id,
-        `You are already entered in all eligible open raffles (*${eligibleRaffles.length}*).`,
+        specificRaffleId != null
+          ? 'You are already entered in that raffle.'
+          : `You are already entered in all eligible open raffles (*${eligibleRaffles.length}*).`,
         { parse_mode: 'Markdown' }
       );
       return;
@@ -518,6 +483,93 @@ export class RaffleBot {
       summaryLines.join('\n'),
       { parse_mode: 'Markdown' }
     );
+  }
+
+  private async sendEnterPicker(chatId: number, userId: number, preferredMessageId?: number, isPrivate = false): Promise<void> {
+    const openRaffles = (await this.raffleService.getOpenRaffles()).filter((raffle) => raffle.status === 'open');
+    if (openRaffles.length === 0) {
+      await this.bot.sendMessage(chatId, 'No open raffle right now.');
+      return;
+    }
+
+    const user = await this.userService.getByTelegramUserId(userId);
+    if (!user) {
+      await this.bot.sendMessage(chatId, 'Please register first with /register.');
+      return;
+    }
+
+    const eligibleRaffles = openRaffles.filter((raffle) => Boolean(this.getUserWalletForChain(user, raffle.chain)));
+    if (eligibleRaffles.length === 0) {
+      await this.bot.sendMessage(
+        chatId,
+        'There are open raffles, but you do not have a wallet saved for their chain(s). Use /register to add EVM and/or Solana wallets.',
+        { parse_mode: 'Markdown' }
+      );
+      return;
+    }
+
+    const entryCounts = new Map<number, number>(
+      await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
+    );
+
+    const raffleLines = eligibleRaffles.map((raffle) => {
+      const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
+      const utcEndText = raffle.endsAt ? raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
+      const timeText = hoursLeft != null ? `~${hoursLeft}h left` : null;
+      const enteredText = ` · entered: *${entryCounts.get(raffle.id) ?? 0}*`;
+      const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
+        ? ` · reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`
+        : '';
+      return [
+        `• *${raffle.title}*`,
+        `${raffle.chain.toUpperCase()} · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${enteredText}${rewardText}`,
+        utcEndText ? `${timeText ? `${timeText} · ` : ''}ends: *${utcEndText}*` : timeText,
+      ].filter(Boolean).join('\n');
+    });
+
+    const raffleButtons = eligibleRaffles.map((raffle) => ([
+      {
+        text: `✅ Enter: ${raffle.title}`.slice(0, 64),
+        callback_data: `user:enter_raffle:${raffle.id}`,
+      },
+    ]));
+
+    const keyboard = [
+      ...raffleButtons,
+      [{ text: '✅ Enter All Eligible', callback_data: 'user:enter_all' }],
+      ...(isPrivate ? [[{ text: '🏠 Home', callback_data: 'user:home' }]] : []),
+    ];
+
+    const body = [
+      '🎟 *Choose Raffle Entry*',
+      '',
+      ...raffleLines,
+      '',
+      'Choose one raffle or enter all eligible raffles.',
+    ].join('\n');
+
+    if (isPrivate) {
+      await this.renderUserCard(
+        chatId,
+        userId,
+        body,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: keyboard,
+          },
+        },
+        preferredMessageId
+      );
+      return;
+    }
+
+    await this.bot.sendMessage(chatId, body, {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: keyboard,
+      },
+    });
   }
 
   private async showAdminPanel(msg: Message): Promise<void> {
@@ -713,7 +765,8 @@ export class RaffleBot {
 
     await this.bot.answerCallbackQuery(query.id);
 
-    if (query.message?.chat.type !== 'private' && !this.isAdmin(userId) && data !== 'user:enter') {
+    const isGroupEnterAction = data === 'user:enter' || data === 'user:enter_all' || data.startsWith('user:enter_raffle:');
+    if (query.message?.chat.type !== 'private' && !this.isAdmin(userId) && !isGroupEnterAction) {
       await this.bot.sendMessage(chatId, 'In groups, bot commands are admin-only.');
       return;
     }
@@ -867,7 +920,23 @@ export class RaffleBot {
     }
 
     if (data === 'user:enter') {
+      await this.sendEnterPicker(chatId, userId, query.message?.message_id, query.message?.chat.type === 'private');
+      return;
+    }
+
+    if (data === 'user:enter_all') {
       await this.enterActiveRaffle({ ...query.message!, from: query.from } as Message);
+      return;
+    }
+
+    if (data.startsWith('user:enter_raffle:')) {
+      const raffleId = Number(data.split(':')[2]);
+      if (!Number.isInteger(raffleId)) {
+        await this.bot.sendMessage(chatId, 'Invalid raffle selection.');
+        return;
+      }
+
+      await this.enterActiveRaffle({ ...query.message!, from: query.from } as Message, raffleId);
       return;
     }
 
