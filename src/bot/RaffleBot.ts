@@ -305,7 +305,7 @@ export class RaffleBot {
       const startLink = this.getBotStartLink('register') ?? this.getRegisterLink();
       await this.bot.sendMessage(
         msg.chat.id,
-        'For privacy, wallet registration is only available in DM. Please message me directly with /register.',
+        'For privacy, wallet registration is only available in DM. Tap below to open chat.',
         startLink
           ? {
               reply_markup: {
