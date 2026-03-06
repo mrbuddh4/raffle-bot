@@ -2868,21 +2868,23 @@ export class RaffleBot {
       await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
     );
     const raffleBlocks = openRaffles.map((raffle) => {
-      const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
+      const minutesLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 60000)) : null;
       return [
-        `• Title: *${raffle.title}*`,
-        `Winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
-        `Entered: *${entryCounts.get(raffle.id) ?? 0}*`,
-        hoursLeft != null ? `~*${hoursLeft}h* left` : null,
-        `Chain: *${raffle.chain.toUpperCase()}*`,
+        `• ${raffle.title}`,
+        '',
+        `Winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}`,
+        `Entered: ${entryCounts.get(raffle.id) ?? 0}`,
+        minutesLeft != null ? `~${minutesLeft}m left` : null,
+        '',
+        `Chain: ${raffle.chain.toUpperCase()}`,
       ].filter(Boolean).join('\n');
     });
 
     if (startLink) {
       const body = [
-        '🎟 *RAFFLE LIVE — ENTER HERE* 🎟',
+        '🎟 RAFFLE LIVE — ENTER HERE🎟',
         '',
-        openRaffles.length > 0 ? `Open raffles: *${openRaffles.length}*` : 'No open raffles right now.',
+        openRaffles.length > 0 ? `Open raffles: ${openRaffles.length}` : 'No open raffles right now.',
         raffleBlocks.length > 0 ? '' : null,
         ...raffleBlocks.flatMap((block, index) => index === raffleBlocks.length - 1 ? [block] : [block, '']),
         '',
@@ -2893,7 +2895,6 @@ export class RaffleBot {
       if (enterCardVideoPath) {
         await this.bot.sendVideo(chatId, fs.createReadStream(enterCardVideoPath), {
           caption: body,
-          parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [[{ text: '🔥 ENTER HERE', url: startLink }]],
           },
@@ -2905,7 +2906,6 @@ export class RaffleBot {
       if (enterArtworkUrl) {
         await this.bot.sendPhoto(chatId, enterArtworkUrl, {
           caption: body,
-          parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [[{ text: '🔥 ENTER HERE', url: startLink }]],
           },
@@ -2914,7 +2914,6 @@ export class RaffleBot {
       }
 
       await this.bot.sendMessage(chatId, body, {
-        parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [[{ text: '🔥 ENTER HERE', url: startLink }]],
         },
