@@ -427,8 +427,7 @@ export class RaffleService {
                     * ((r.alerts_sent_count + 2)::double precision)
                   )
               )
-            END,
-            updated_at = NOW()
+            END
         FROM due
         WHERE r.id = due.id
         RETURNING r.id, r.title, r.winner_count, r.chain, r.status, r.created_by, r.announcement_chat_id, r.all_entrants_win, r.ends_at, r.next_hourly_alert_at, r.reward_token, r.reward_total_amount
@@ -486,8 +485,7 @@ export class RaffleService {
       `
       UPDATE raffles
       SET alerts_sent_count = $2,
-          next_hourly_alert_at = $3,
-          updated_at = NOW()
+          next_hourly_alert_at = $3
       WHERE id = $1
       `,
       [raffleId, sentCount, nextAlertAt]
