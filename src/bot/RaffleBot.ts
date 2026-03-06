@@ -1,11 +1,14 @@
 import TelegramBot, { CallbackQuery, Message } from 'node-telegram-bot-api';
 import { parse } from 'csv-parse/sync';
+import fs from 'fs';
+import path from 'path';
 import { Pool } from 'pg';
 import { RaffleService } from '../services/RaffleService';
 import { UserService } from '../services/UserService';
 import { PayoutService } from '../services/PayoutService';
 import { AdminPayoutWalletService } from '../services/AdminPayoutWalletService';
 import { PayrollGroupService } from '../services/PayrollGroupService';
+import { GroupChatService } from '../services/GroupChatService';
 import { getAdminIds, getRequiredEnv } from '../utils/env';
 import { isValidWalletForChain, normalizeWallet, parseWalletChain, WalletChain } from '../utils/validators';
 
@@ -70,6 +73,7 @@ export class RaffleBot {
   private readonly payoutService: PayoutService;
   private readonly adminPayoutWalletService: AdminPayoutWalletService;
   private readonly payrollGroupService: PayrollGroupService;
+  private readonly groupChatService: GroupChatService;
   private readonly adminIds: Set<number>;
   private botUserId: number | null = null;
   private botUsername: string | null = null;
@@ -89,6 +93,7 @@ export class RaffleBot {
     this.payoutService = new PayoutService();
     this.adminPayoutWalletService = new AdminPayoutWalletService(pool);
     this.payrollGroupService = new PayrollGroupService(pool);
+    this.groupChatService = new GroupChatService(pool);
     this.adminIds = getAdminIds();
   }
 
@@ -171,6 +176,8 @@ export class RaffleBot {
     if (!botWasAdded) {
       return;
     }
+
+    await this.rememberGroupChat(msg.chat);
 
     await this.bot.sendMessage(
       msg.chat.id,
@@ -302,6 +309,7 @@ export class RaffleBot {
 
   private async beginRegistration(msg: Message): Promise<void> {
     if (msg.chat.type !== 'private') {
+      await this.rememberGroupChat(msg.chat);
       const startLink = this.getBotStartLink('register') ?? this.getRegisterLink();
       await this.bot.sendMessage(
         msg.chat.id,
@@ -342,6 +350,7 @@ export class RaffleBot {
     }
 
     if (msg.chat.type !== 'private') {
+      await this.rememberGroupChat(msg.chat);
       this.rememberEnterGroup(userId, msg.chat.id);
       await this.sendEnterViaDmPrompt(msg.chat.id);
       return;
@@ -852,6 +861,7 @@ export class RaffleBot {
     await this.bot.answerCallbackQuery(query.id);
 
     const isGroupEnterAction = data === 'user:enter' || data === 'user:enter_all' || data.startsWith('user:enter_raffle:');
+    await this.rememberGroupChat(query.message?.chat);
     if (query.message?.chat.type !== 'private' && !this.isAdmin(userId) && !isGroupEnterAction) {
       await this.bot.sendMessage(chatId, 'In groups, bot commands are admin-only.');
       return;
@@ -2751,11 +2761,6 @@ export class RaffleBot {
   }
 
   private async announceRaffleGoLive(raffle: { title: string; chain: WalletChain; winnerCount: number; allEntrantsWin: boolean; endsAt: Date | null; announcementChatId: number | null; rewardToken: string | null; rewardTotalAmount: number | null }): Promise<void> {
-    const chatId = raffle.announcementChatId;
-    if (!chatId) {
-      return;
-    }
-
     const registerLink = this.getRegisterLink();
     const fundingLink = process.env.FUNDING_LINK?.trim();
     const artworkUrl = process.env.RAFFLE_ARTWORK_URL?.trim();
@@ -2777,12 +2782,29 @@ export class RaffleBot {
       fundingLink ? `Get Funded: ${fundingLink}` : null,
     ].filter(Boolean).join('\n');
 
-    if (artworkUrl) {
-      await this.bot.sendPhoto(chatId, artworkUrl, { caption, parse_mode: 'Markdown' });
+    const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
+    if (targetChatIds.length === 0) {
       return;
     }
 
-    await this.bot.sendMessage(chatId, caption, { parse_mode: 'Markdown' });
+    if (artworkUrl) {
+      await Promise.all(targetChatIds.map(async (targetChatId) => {
+        try {
+          await this.bot.sendPhoto(targetChatId, artworkUrl, { caption, parse_mode: 'Markdown' });
+        } catch (error: any) {
+          await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
+        }
+      }));
+      return;
+    }
+
+    await Promise.all(targetChatIds.map(async (targetChatId) => {
+      try {
+        await this.bot.sendMessage(targetChatId, caption, { parse_mode: 'Markdown' });
+      } catch (error: any) {
+        await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
+      }
+    }));
   }
 
   private async sendRaffleClosedAnnouncement(
@@ -2793,9 +2815,14 @@ export class RaffleBot {
 
     await this.bot.sendMessage(raffle.createdBy, message, this.getAdminBackOptions({ parse_mode: 'Markdown' }));
 
-    if (raffle.announcementChatId) {
-      await this.bot.sendMessage(raffle.announcementChatId, message, { parse_mode: 'Markdown' });
-    }
+    const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
+    await Promise.all(targetChatIds.map(async (targetChatId) => {
+      try {
+        await this.bot.sendMessage(targetChatId, message, { parse_mode: 'Markdown' });
+      } catch (error: any) {
+        await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
+      }
+    }));
   }
 
   private getRegisterLink(): string | null {
@@ -2837,34 +2864,74 @@ export class RaffleBot {
     const extraRaffles = Math.max(0, openRaffles.length - 1);
 
     if (startLink) {
-      await this.bot.sendMessage(
-        chatId,
-        [
-          '🎟 *RAFFLE LIVE — ENTER HERE* 🎟',
-          '',
-          openRaffles.length > 0 ? `Open raffles: *${openRaffles.length}*` : 'No open raffles right now.',
-          featuredRaffle ? `• *${featuredRaffle.title}*` : null,
-          '',
-          featuredRaffle ? `Winners: *${featuredRaffle.allEntrantsWin ? 'all entrants' : featuredRaffle.winnerCount}*` : null,
-          featuredRaffle ? `Entered: *${entryCounts.get(featuredRaffle.id) ?? 0}*` : null,
-          hoursLeft != null ? `~*${hoursLeft}h* left` : null,
-          '',
-          featuredRaffle ? `Chain: *${featuredRaffle.chain.toUpperCase()}*` : null,
-          extraRaffles > 0 ? `+ *${extraRaffles}* more open raffle(s)` : null,
-          '',
-          'Test your luck! Tap below to open chat.',
-        ].filter(Boolean).join('\n'),
-        {
+      const body = [
+        '🎟 *RAFFLE LIVE — ENTER HERE* 🎟',
+        '',
+        openRaffles.length > 0 ? `Open raffles: *${openRaffles.length}*` : 'No open raffles right now.',
+        featuredRaffle ? `• *${featuredRaffle.title}*` : null,
+        '',
+        featuredRaffle ? `Winners: *${featuredRaffle.allEntrantsWin ? 'all entrants' : featuredRaffle.winnerCount}*` : null,
+        featuredRaffle ? `Entered: *${entryCounts.get(featuredRaffle.id) ?? 0}*` : null,
+        hoursLeft != null ? `~*${hoursLeft}h* left` : null,
+        '',
+        featuredRaffle ? `Chain: *${featuredRaffle.chain.toUpperCase()}*` : null,
+        extraRaffles > 0 ? `+ *${extraRaffles}* more open raffle(s)` : null,
+        '',
+        'Test your luck! Tap below to open chat.',
+      ].filter(Boolean).join('\n');
+
+      const enterCardVideoPath = this.getEnterCardVideoPath();
+      if (enterCardVideoPath) {
+        await this.bot.sendVideo(chatId, fs.createReadStream(enterCardVideoPath), {
+          caption: body,
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [[{ text: '🔥 ENTER HERE', url: startLink }]],
           },
-        }
-      );
+        });
+        return;
+      }
+
+      const enterArtworkUrl = process.env.ENTER_CARD_ARTWORK_URL?.trim();
+      if (enterArtworkUrl) {
+        await this.bot.sendPhoto(chatId, enterArtworkUrl, {
+          caption: body,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[{ text: '🔥 ENTER HERE', url: startLink }]],
+          },
+        });
+        return;
+      }
+
+      await this.bot.sendMessage(chatId, body, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '🔥 ENTER HERE', url: startLink }]],
+        },
+      });
       return;
     }
 
     await this.bot.sendMessage(chatId, 'To enter raffles, please DM me first.');
+  }
+
+  private getEnterCardVideoPath(): string | null {
+    const configuredPath = process.env.ENTER_CARD_VIDEO_PATH?.trim();
+    const candidates = [
+      configuredPath,
+      'assets/enter-card.MP4',
+      'assets/enter-card.mp4',
+    ].filter((item): item is string => Boolean(item));
+
+    for (const candidate of candidates) {
+      const absolutePath = path.isAbsolute(candidate) ? candidate : path.resolve(process.cwd(), candidate);
+      if (fs.existsSync(absolutePath)) {
+        return absolutePath;
+      }
+    }
+
+    return null;
   }
 
   private rememberEnterGroup(userId: number, chatId: number): void {
@@ -3366,6 +3433,35 @@ export class RaffleBot {
       await this.bot.deleteMessage(chatId, messageId);
     } catch {
       // ignore cleanup failures
+    }
+  }
+
+  private async rememberGroupChat(chat?: Message['chat']): Promise<void> {
+    if (!chat || (chat.type !== 'group' && chat.type !== 'supergroup')) {
+      return;
+    }
+
+    await this.groupChatService.upsertGroupChat(chat.id, chat.type, chat.title ?? null);
+  }
+
+  private async getAlertTargetChatIds(primaryChatId: number | null): Promise<number[]> {
+    const groupChatIds = await this.groupChatService.listActiveGroupChatIds();
+    const merged = new Set<number>(groupChatIds);
+    if (primaryChatId != null) {
+      merged.add(primaryChatId);
+    }
+    return [...merged];
+  }
+
+  private async maybeDeactivateGroupChatOnSendFailure(chatId: number, error: any): Promise<void> {
+    const message = typeof error?.message === 'string' ? error.message.toLowerCase() : '';
+    const isRemoved = message.includes('chat not found')
+      || message.includes('bot was kicked')
+      || message.includes('forbidden')
+      || message.includes('have no rights to send');
+
+    if (isRemoved) {
+      await this.groupChatService.deactivateGroupChat(chatId);
     }
   }
 

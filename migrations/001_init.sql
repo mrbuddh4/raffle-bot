@@ -90,6 +90,18 @@ CREATE TABLE IF NOT EXISTS payroll_group_items (
 CREATE INDEX IF NOT EXISTS idx_payroll_groups_admin_id ON payroll_groups(admin_telegram_user_id);
 CREATE INDEX IF NOT EXISTS idx_payroll_group_items_group_id ON payroll_group_items(payroll_group_id);
 
+CREATE TABLE IF NOT EXISTS bot_group_chats (
+  id SERIAL PRIMARY KEY,
+  chat_id BIGINT UNIQUE NOT NULL,
+  chat_type TEXT NOT NULL CHECK (chat_type IN ('group', 'supergroup')),
+  chat_title TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bot_group_chats_is_active ON bot_group_chats(is_active);
+
 ALTER SEQUENCE admin_payout_wallets_id_seq OWNED BY admin_payout_wallets.id;
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_chain TEXT;
