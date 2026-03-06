@@ -77,6 +77,7 @@ export class RaffleBot {
   private readonly pendingExecutionByUser = new Map<number, PendingExecution>();
   private readonly pendingPayrollByUser = new Map<number, PendingPayrollExecution>();
   private readonly enterActionLockByKey = new Map<string, number>();
+  private readonly lastEnterGroupByUser = new Map<number, { chatId: number; at: number }>();
   private readonly userCardByUser = new Map<number, { chatId: number; messageId: number }>();
   private readonly adminCardByUser = new Map<number, { chatId: number; messageId: number }>();
 
@@ -189,19 +190,11 @@ export class RaffleBot {
     if (!userId) return;
     const startPayload = msg.text?.trim().split(/\s+/, 2)[1]?.toLowerCase();
 
-    if (!(await this.ensureGroupAdminAccess(msg.chat, userId))) {
+    if (msg.chat.type !== 'private') {
       return;
     }
 
-    if (msg.chat.type !== 'private') {
-      await this.bot.sendMessage(
-        chatId,
-        [
-          '🎉 Raffle Bot is active in this group.',
-          'Use /enter to join open raffles.',
-          'To set or edit your profile/wallets, DM me with /start then /register or /profile.',
-        ].join('\n')
-      );
+    if (!(await this.ensureGroupAdminAccess(msg.chat, userId))) {
       return;
     }
 
@@ -239,6 +232,10 @@ export class RaffleBot {
   }
 
   private async handleHelp(msg: Message): Promise<void> {
+    if (msg.chat.type !== 'private') {
+      return;
+    }
+
     if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
       return;
     }
@@ -275,6 +272,10 @@ export class RaffleBot {
   }
 
   private async handleMyId(msg: Message): Promise<void> {
+    if (msg.chat.type !== 'private') {
+      return;
+    }
+
     if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
       return;
     }
@@ -329,6 +330,7 @@ export class RaffleBot {
     }
 
     if (msg.chat.type !== 'private') {
+      this.rememberEnterGroup(userId, msg.chat.id);
       await this.sendEnterViaDmPrompt(msg.chat.id);
       return;
     }
@@ -337,15 +339,11 @@ export class RaffleBot {
   }
 
   private async handleProfile(msg: Message): Promise<void> {
-    if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
+    if (msg.chat.type !== 'private') {
       return;
     }
 
-    if (msg.chat.type !== 'private') {
-      await this.bot.sendMessage(
-        msg.chat.id,
-        'Profile editing is only available in DM. Please message me directly with /profile.'
-      );
+    if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
       return;
     }
 
@@ -358,6 +356,10 @@ export class RaffleBot {
   }
 
   private async handleCurrentRaffles(msg: Message): Promise<void> {
+    if (msg.chat.type !== 'private') {
+      return;
+    }
+
     if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
       return;
     }
@@ -531,6 +533,14 @@ export class RaffleBot {
       summaryLines.join('\n'),
       { parse_mode: 'Markdown' }
     );
+
+    if (msg.chat.type === 'private') {
+      const sourceGroupChatId = this.consumeRecentEnterGroup(user.id);
+      if (sourceGroupChatId != null) {
+        const groupLines = enteredTitles.map((title) => `✅ *${actorName}* entered raffle: *${title}*`);
+        await this.bot.sendMessage(sourceGroupChatId, groupLines.join('\n'), { parse_mode: 'Markdown' });
+      }
+    }
   }
 
   private async sendEnterPicker(chatId: number, userId: number, preferredMessageId?: number, isPrivate = false): Promise<void> {
@@ -621,6 +631,10 @@ export class RaffleBot {
   }
 
   private async showAdminPanel(msg: Message): Promise<void> {
+    if (msg.chat.type !== 'private') {
+      return;
+    }
+
     if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
       return;
     }
@@ -635,6 +649,10 @@ export class RaffleBot {
   }
 
   private async handleMyRaffles(msg: Message): Promise<void> {
+    if (msg.chat.type !== 'private') {
+      return;
+    }
+
     if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
       return;
     }
@@ -649,6 +667,10 @@ export class RaffleBot {
   }
 
   private async handleSetPayoutWallet(msg: Message): Promise<void> {
+    if (msg.chat.type !== 'private') {
+      return;
+    }
+
     if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
       return;
     }
@@ -681,6 +703,10 @@ export class RaffleBot {
   }
 
   private async handleRemovePayoutWallet(msg: Message): Promise<void> {
+    if (msg.chat.type !== 'private') {
+      return;
+    }
+
     if (!(await this.ensureGroupAdminAccess(msg.chat, msg.from?.id))) {
       return;
     }
@@ -969,6 +995,7 @@ export class RaffleBot {
 
     if (data === 'user:enter') {
       if (query.message?.chat.type !== 'private') {
+        this.rememberEnterGroup(userId, chatId);
         await this.sendEnterViaDmPrompt(chatId);
         return;
       }
@@ -979,6 +1006,7 @@ export class RaffleBot {
 
     if (data === 'user:enter_all') {
       if (query.message?.chat.type !== 'private') {
+        this.rememberEnterGroup(userId, chatId);
         await this.sendEnterViaDmPrompt(chatId);
         return;
       }
@@ -989,6 +1017,7 @@ export class RaffleBot {
 
     if (data.startsWith('user:enter_raffle:')) {
       if (query.message?.chat.type !== 'private') {
+        this.rememberEnterGroup(userId, chatId);
         await this.sendEnterViaDmPrompt(chatId);
         return;
       }
@@ -2768,13 +2797,34 @@ export class RaffleBot {
       ? `https://t.me/${botUsername.replace(/^@/, '')}?start=enter`
       : this.getRegisterLink();
 
+    const openRaffles = (await this.raffleService.getOpenRaffles()).filter((raffle) => raffle.status === 'open');
+    const entryCounts = new Map<number, number>(
+      await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
+    );
+
+    const raffleLines = openRaffles.slice(0, 3).map((raffle) => {
+      const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
+      const timeText = hoursLeft != null ? ` · ~${hoursLeft}h left` : '';
+      const enteredText = ` · entered: *${entryCounts.get(raffle.id) ?? 0}*`;
+      return `• *${raffle.title}* [${raffle.chain.toUpperCase()}] · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${enteredText}${timeText}`;
+    });
+
     if (startLink) {
       await this.bot.sendMessage(
         chatId,
-        'Tap below to open chat.',
+        [
+          '🚨 *RAFFLE LIVE — ENTER HERE*',
+          openRaffles.length > 0 ? `Open raffles: *${openRaffles.length}*` : 'No open raffles right now.',
+          raffleLines.length > 0 ? '' : null,
+          ...raffleLines,
+          openRaffles.length > raffleLines.length ? `...and *${openRaffles.length - raffleLines.length}* more` : null,
+          '',
+          'Tap below to open chat.',
+        ].filter(Boolean).join('\n'),
         {
+          parse_mode: 'Markdown',
           reply_markup: {
-            inline_keyboard: [[{ text: '📩 Open DM', url: startLink }]],
+            inline_keyboard: [[{ text: '🔥 ENTER HERE', url: startLink }]],
           },
         }
       );
@@ -2782,6 +2832,25 @@ export class RaffleBot {
     }
 
     await this.bot.sendMessage(chatId, 'To enter raffles, please DM me first.');
+  }
+
+  private rememberEnterGroup(userId: number, chatId: number): void {
+    this.lastEnterGroupByUser.set(userId, { chatId, at: Date.now() });
+  }
+
+  private consumeRecentEnterGroup(userId: number): number | null {
+    const value = this.lastEnterGroupByUser.get(userId);
+    this.lastEnterGroupByUser.delete(userId);
+    if (!value) {
+      return null;
+    }
+
+    const fifteenMinutesMs = 15 * 60 * 1000;
+    if (Date.now() - value.at > fifteenMinutesMs) {
+      return null;
+    }
+
+    return value.chatId;
   }
 
   private async sendPayoutWallets(chatId: number, adminId: number, raffleId?: number): Promise<void> {
