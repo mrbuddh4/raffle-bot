@@ -19,6 +19,7 @@ export interface Raffle {
 export interface WinnerResult {
   rank: number;
   displayUsername: string;
+  telegramUsername?: string | null;
   walletChain: WalletChain;
   walletAddress: string;
   userId: number;
@@ -462,7 +463,7 @@ export class RaffleService {
     const entries = allEntrantsWin
       ? await this.pool.query(
           `
-          SELECT u.id, u.display_username, e.wallet_chain, e.wallet_address
+          SELECT u.id, u.display_username, u.telegram_username, e.wallet_chain, e.wallet_address
           FROM raffle_entries e
           INNER JOIN users u ON u.id = e.user_id
           WHERE e.raffle_id = $1
@@ -472,7 +473,7 @@ export class RaffleService {
         )
       : await this.pool.query(
           `
-          SELECT u.id, u.display_username, e.wallet_chain, e.wallet_address
+          SELECT u.id, u.display_username, u.telegram_username, e.wallet_chain, e.wallet_address
           FROM raffle_entries e
           INNER JOIN users u ON u.id = e.user_id
           WHERE e.raffle_id = $1
@@ -496,6 +497,7 @@ export class RaffleService {
         rank,
         userId: Number(row.id),
         displayUsername: row.display_username,
+        telegramUsername: row.telegram_username ?? null,
         walletChain: row.wallet_chain,
         walletAddress: row.wallet_address,
       });
@@ -519,7 +521,7 @@ export class RaffleService {
   async getWinnersForPayout(raffleId: number): Promise<WinnerResult[]> {
     const result = await this.pool.query(
       `
-      SELECT rw.rank, u.id, u.display_username, e.wallet_chain, e.wallet_address
+      SELECT rw.rank, u.id, u.display_username, u.telegram_username, e.wallet_chain, e.wallet_address
       FROM raffle_winners rw
       INNER JOIN users u ON u.id = rw.user_id
       INNER JOIN raffle_entries e ON e.raffle_id = rw.raffle_id AND e.user_id = rw.user_id
@@ -533,6 +535,7 @@ export class RaffleService {
       rank: Number(row.rank),
       userId: Number(row.id),
       displayUsername: row.display_username,
+      telegramUsername: row.telegram_username ?? null,
       walletChain: row.wallet_chain,
       walletAddress: row.wallet_address,
     }));

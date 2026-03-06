@@ -2902,8 +2902,80 @@ export class RaffleBot {
       return;
     }
 
-    const winnerLines = winners.map((winner) => `${winner.rank}. ${winner.displayUsername}`).join('\n');
+    const autoPayoutByRank = await this.runAutomaticPayoutForRaffle(raffle, winners);
+    const winnerLines = winners.map((winner) => {
+      const mention = winner.telegramUsername ? `@${winner.telegramUsername}` : winner.displayUsername;
+      const payout = autoPayoutByRank.get(winner.rank);
+      if (!payout) {
+        return `${winner.rank}. ${mention}`;
+      }
+
+      const txUrl = this.getTransactionExplorerUrl(winner.walletChain, payout.txHash);
+      return `${winner.rank}. ${mention}\nTx: ${txUrl}`;
+    }).join('\n\n');
+
     await this.sendRaffleClosedAnnouncement(raffle, winnerLines);
+  }
+
+  private async runAutomaticPayoutForRaffle(
+    raffle: { id: number; title: string; chain: WalletChain; createdBy: number; rewardTotalAmount: number | null },
+    winners: Array<{ rank: number; walletAddress: string; walletChain: WalletChain }>
+  ): Promise<Map<number, { txHash: string }>> {
+    const payoutByRank = new Map<number, { txHash: string }>();
+
+    if (!raffle.rewardTotalAmount || winners.length === 0) {
+      return payoutByRank;
+    }
+
+    const signer = await this.adminPayoutWalletService.getWallet(raffle.createdBy, raffle.chain, 'native');
+    if (!signer) {
+      await this.bot.sendMessage(
+        raffle.createdBy,
+        `⚠️ Auto payout skipped for *${raffle.title}*: no native payout signer configured for *${raffle.chain.toUpperCase()}*.`,
+        { parse_mode: 'Markdown' }
+      );
+      return payoutByRank;
+    }
+
+    const amountPerWinner = raffle.rewardTotalAmount / winners.length;
+    if (!Number.isFinite(amountPerWinner) || amountPerWinner <= 0) {
+      await this.bot.sendMessage(
+        raffle.createdBy,
+        `⚠️ Auto payout skipped for *${raffle.title}*: invalid reward amount configured.`,
+        { parse_mode: 'Markdown' }
+      );
+      return payoutByRank;
+    }
+
+    try {
+      const results = await this.payoutService.payoutNative(
+        raffle.chain,
+        amountPerWinner,
+        winners.map((winner) => ({ rank: winner.rank, walletAddress: winner.walletAddress })),
+        signer.secret
+      );
+
+      for (const result of results) {
+        await this.raffleService.markWinnerPaid(raffle.id, result.rank, result.txHash);
+        payoutByRank.set(result.rank, { txHash: result.txHash });
+      }
+    } catch (error: any) {
+      await this.bot.sendMessage(
+        raffle.createdBy,
+        `⚠️ Auto payout failed for *${raffle.title}*: ${error?.message || 'unknown error'}`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    return payoutByRank;
+  }
+
+  private getTransactionExplorerUrl(chain: WalletChain, txHash: string): string {
+    const base = chain === 'evm'
+      ? (process.env.EVM_TX_EXPLORER_BASE_URL?.trim() || 'https://basescan.org/tx/')
+      : (process.env.SOLANA_TX_EXPLORER_BASE_URL?.trim() || 'https://solscan.io/tx/');
+    const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+    return `${normalizedBase}${txHash}`;
   }
 
   private startAnnouncementLoop(): void {
@@ -3035,14 +3107,14 @@ export class RaffleBot {
     raffle: { createdBy: number; announcementChatId: number | null; title: string; chain: WalletChain },
     winnerLines: string
   ): Promise<void> {
-    const message = `🏁 *${raffle.title}* is closed.\n\n🎉 *WINNER WINNER* 🎉\n${winnerLines}`;
+    const message = `🏁 ${raffle.title} is closed.\n\n🎉 WINNER WINNER 🎉\n${winnerLines}`;
 
-    await this.bot.sendMessage(raffle.createdBy, message, this.getAdminBackOptions({ parse_mode: 'Markdown' }));
+    await this.bot.sendMessage(raffle.createdBy, message, this.getAdminBackOptions());
 
     const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
     await Promise.all(targetChatIds.map(async (targetChatId) => {
       try {
-        await this.bot.sendMessage(targetChatId, message, { parse_mode: 'Markdown' });
+        await this.bot.sendMessage(targetChatId, message);
       } catch (error: any) {
         await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
       }
