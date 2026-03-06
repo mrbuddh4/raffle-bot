@@ -337,6 +337,18 @@ export class RaffleBot {
     const userId = msg.from?.id;
     if (!userId) return;
 
+    const existingUser = await this.userService.getByTelegramUserId(userId);
+    if (existingUser) {
+      this.pendingByUser.delete(userId);
+      await this.sendProfileEditor(
+        msg.chat.id,
+        userId,
+        msg.message_id,
+        '✅ You are already registered. Use Profile Editor to update details.'
+      );
+      return;
+    }
+
     this.pendingByUser.set(userId, { type: 'register_username' });
     await this.renderUserCard(
       msg.chat.id,
