@@ -2791,6 +2791,7 @@ export class RaffleBot {
     const registerLink = this.getRegisterLink();
     const fundingLink = process.env.FUNDING_LINK?.trim();
     const artworkUrl = process.env.RAFFLE_ARTWORK_URL?.trim();
+    const goLiveVideoPath = this.getEnterCardVideoPath();
     const hoursText = raffle.endsAt
       ? `Ends in ~*${Math.max(1, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000))}h*`
       : null;
@@ -2799,7 +2800,7 @@ export class RaffleBot {
       : null;
 
     const caption = [
-      `🚨 *RAFFLE GO LIVE*`,
+      `🚨 *RAFFLE IS LIVE*`,
       `*${raffle.title}* [${raffle.chain.toUpperCase()}]`,
       `Winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
       raffle.rewardToken && raffle.rewardTotalAmount != null ? `Reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*` : null,
@@ -2811,6 +2812,17 @@ export class RaffleBot {
 
     const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
     if (targetChatIds.length === 0) {
+      return;
+    }
+
+    if (goLiveVideoPath) {
+      await Promise.all(targetChatIds.map(async (targetChatId) => {
+        try {
+          await this.bot.sendVideo(targetChatId, fs.createReadStream(goLiveVideoPath), { caption, parse_mode: 'Markdown' });
+        } catch (error: any) {
+          await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
+        }
+      }));
       return;
     }
 
