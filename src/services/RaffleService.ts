@@ -24,6 +24,17 @@ export interface WinnerResult {
   userId: number;
 }
 
+export interface EnteredRaffleSummary {
+  id: number;
+  title: string;
+  status: 'created' | 'open' | 'drawing' | 'completed';
+  chain: WalletChain;
+  winnerCount: number;
+  allEntrantsWin: boolean;
+  endsAt: Date | null;
+  enteredAt: Date;
+}
+
 export class RaffleService {
   constructor(private readonly pool: Pool) {}
 
@@ -207,6 +218,39 @@ export class RaffleService {
     );
 
     return result.rows.map((row) => this.mapRaffle(row));
+  }
+
+  async getRafflesEnteredByUser(userId: number, limit = 20): Promise<EnteredRaffleSummary[]> {
+    const result = await this.pool.query(
+      `
+      SELECT
+        r.id,
+        r.title,
+        r.status,
+        r.chain,
+        r.winner_count,
+        r.all_entrants_win,
+        r.ends_at,
+        e.entered_at
+      FROM raffle_entries e
+      INNER JOIN raffles r ON r.id = e.raffle_id
+      WHERE e.user_id = $1
+      ORDER BY e.entered_at DESC
+      LIMIT $2
+      `,
+      [userId, limit]
+    );
+
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      title: row.title,
+      status: row.status,
+      chain: row.chain,
+      winnerCount: Number(row.winner_count),
+      allEntrantsWin: Boolean(row.all_entrants_win),
+      endsAt: row.ends_at ? new Date(row.ends_at) : null,
+      enteredAt: new Date(row.entered_at),
+    }));
   }
 
   async getLastCompletedRaffleId(): Promise<number | null> {

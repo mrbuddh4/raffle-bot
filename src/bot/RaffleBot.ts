@@ -480,6 +480,56 @@ export class RaffleBot {
     );
   }
 
+  private async sendMyEnteredRaffles(chatId: number, telegramUserId: number, preferredMessageId?: number): Promise<void> {
+    const user = await this.userService.getByTelegramUserId(telegramUserId);
+    if (!user) {
+      await this.bot.sendMessage(chatId, 'Please register first with /register.');
+      return;
+    }
+
+    const enteredRaffles = await this.raffleService.getRafflesEnteredByUser(user.id, 20);
+    if (enteredRaffles.length === 0) {
+      await this.renderUserCard(
+        chatId,
+        telegramUserId,
+        '📋 *My Raffles*\n\nYou have not entered any raffles yet.',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[{ text: '🏠 Home', callback_data: 'user:home' }]],
+          },
+        },
+        preferredMessageId
+      );
+      return;
+    }
+
+    const lines = enteredRaffles.map((raffle) => {
+      const status = raffle.status.toUpperCase();
+      const countdown = raffle.status === 'open' ? this.formatTimeRemaining(raffle.endsAt) : null;
+      const enteredAt = raffle.enteredAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+      return [
+        `• *${raffle.title}*`,
+        `${raffle.chain.toUpperCase()} · status: *${status}* · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
+        countdown,
+        `entered: ${enteredAt}`,
+      ].filter(Boolean).join('\n');
+    });
+
+    await this.renderUserCard(
+      chatId,
+      telegramUserId,
+      ['📋 *My Raffles*', '', ...lines].join('\n\n'),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '🏠 Home', callback_data: 'user:home' }]],
+        },
+      },
+      preferredMessageId
+    );
+  }
+
   private async enterActiveRaffle(msg: Message, specificRaffleId?: number): Promise<void> {
     const userId = msg.from?.id;
     if (!userId) return;
@@ -1014,6 +1064,11 @@ export class RaffleBot {
 
     if (data === 'user:home') {
       await this.sendHomeCard(chatId, userId, query.message?.message_id);
+      return;
+    }
+
+    if (data === 'user:my_raffles') {
+      await this.sendMyEnteredRaffles(chatId, userId, query.message?.message_id);
       return;
     }
 
@@ -3652,6 +3707,10 @@ export class RaffleBot {
         { text: '✅ Enter', callback_data: 'user:enter' },
       ],
     ];
+
+    if (hasUserProfile) {
+      keyboard.push([{ text: '📋 My Raffles', callback_data: 'user:my_raffles' }]);
+    }
 
     if (this.isAdmin(userId)) {
       keyboard.push([{ text: '🛠 Admin Panel', callback_data: 'admin:open_panel' }]);
