@@ -1661,7 +1661,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           chatId,
           userId,
-          `Using saved token CA: \`${pending.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
+          `Using saved token CA: \`${pending.tokenAddress}\`\n\nEnter the total number of tokens to send (as shown in your wallet, e.g., 500).`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' }),
           query.message?.message_id
         );
@@ -3023,7 +3023,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           msg.chat.id,
           userId,
-          `Using saved token CA: \`${pending.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
+          `Using saved token CA: \`${pending.tokenAddress}\`\n\nEnter the total number of tokens to send (as shown in your wallet, e.g., 500).`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
         return;
@@ -3073,7 +3073,7 @@ export class RaffleBot {
         mode: 'token',
         tokenAddress,
       });
-      await this.renderAdminCard(msg.chat.id, userId, 'How much total token amount should be distributed across all winners? (human units, example: 500).', this.getAdminBackOptions());
+      await this.renderAdminCard(msg.chat.id, userId, 'Enter the total number of tokens to send (as shown in your wallet, e.g., 500).', this.getAdminBackOptions());
       return;
     }
   }
