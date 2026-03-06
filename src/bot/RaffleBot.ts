@@ -2947,15 +2947,33 @@ export class RaffleBot {
       ? `Ends at: *${raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC')}*`
       : null;
 
-    const caption = [
+    const captionLines: string[] = [
       `🚨 *RAFFLE IS LIVE*`,
+      '',
       `*${raffle.title}* [${raffle.chain.toUpperCase()}]`,
+      '',
       `Winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
-      raffle.rewardToken && raffle.rewardTotalAmount != null ? `Reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*` : null,
-      hoursText,
-      utcEndText,
-      fundingLink ? `Get Funded: ${fundingLink}` : null,
-    ].filter(Boolean).join('\n');
+    ];
+
+    if (raffle.rewardToken && raffle.rewardTotalAmount != null) {
+      captionLines.push(`Reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`);
+    }
+
+    if (hoursText) {
+      captionLines.push(hoursText);
+    }
+
+    captionLines.push('');
+
+    if (utcEndText) {
+      captionLines.push(utcEndText);
+    }
+
+    if (fundingLink) {
+      captionLines.push('', `Get Funded: ${fundingLink}`);
+    }
+
+    const caption = captionLines.join('\n');
 
     const goLiveButtons = [
       enterLink ? { text: '🔥 Enter', url: enterLink } : null,
