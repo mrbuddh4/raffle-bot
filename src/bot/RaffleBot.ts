@@ -2832,25 +2832,27 @@ export class RaffleBot {
     const entryCounts = new Map<number, number>(
       await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
     );
-
-    const raffleLines = openRaffles.slice(0, 3).map((raffle) => {
-      const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
-      const timeText = hoursLeft != null ? ` · ~${hoursLeft}h left` : '';
-      const enteredText = ` · entered: *${entryCounts.get(raffle.id) ?? 0}*`;
-      return `• *${raffle.title}* [${raffle.chain.toUpperCase()}] · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*${enteredText}${timeText}`;
-    });
+    const featuredRaffle = openRaffles[0] ?? null;
+    const hoursLeft = featuredRaffle?.endsAt ? Math.max(0, Math.ceil((featuredRaffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
+    const extraRaffles = Math.max(0, openRaffles.length - 1);
 
     if (startLink) {
       await this.bot.sendMessage(
         chatId,
         [
-          '🚨 *RAFFLE LIVE — ENTER HERE*',
-          openRaffles.length > 0 ? `Open raffles: *${openRaffles.length}*` : 'No open raffles right now.',
-          raffleLines.length > 0 ? '' : null,
-          ...raffleLines,
-          openRaffles.length > raffleLines.length ? `...and *${openRaffles.length - raffleLines.length}* more` : null,
+          '🎟 *RAFFLE LIVE — ENTER HERE* 🎟',
           '',
-          'Tap below to open chat.',
+          openRaffles.length > 0 ? `Open raffles: *${openRaffles.length}*` : 'No open raffles right now.',
+          featuredRaffle ? `• *${featuredRaffle.title}*` : null,
+          '',
+          featuredRaffle ? `Winners: *${featuredRaffle.allEntrantsWin ? 'all entrants' : featuredRaffle.winnerCount}*` : null,
+          featuredRaffle ? `Entered: *${entryCounts.get(featuredRaffle.id) ?? 0}*` : null,
+          hoursLeft != null ? `~*${hoursLeft}h* left` : null,
+          '',
+          featuredRaffle ? `Chain: *${featuredRaffle.chain.toUpperCase()}*` : null,
+          extraRaffles > 0 ? `+ *${extraRaffles}* more open raffle(s)` : null,
+          '',
+          'Test your luck! Tap below to open chat.',
         ].filter(Boolean).join('\n'),
         {
           parse_mode: 'Markdown',
