@@ -1474,7 +1474,7 @@ export class RaffleBot {
         userId,
         pending.chain === 'evm'
           ? 'Send the private key for NATIVE payouts on EVM.'
-          : 'Send the Solana secret key for NATIVE payouts. Accepted formats: JSON array, base58, or base64.',
+          : 'Send the Solana secret key for NATIVE payouts (JSON array or base64).',
         this.getAdminBackOptions(),
         query.message?.message_id
       );
@@ -1661,7 +1661,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           chatId,
           userId,
-          `Using saved token CA: \`${pending.tokenAddress}\`\n\nEnter the total number of tokens to send (as shown in your wallet, e.g., 500).`,
+          `Using saved token CA: \`${pending.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' }),
           query.message?.message_id
         );
@@ -2265,7 +2265,7 @@ export class RaffleBot {
         msg.chat.id,
         pending.chain === 'evm'
           ? 'Send the private key for NATIVE payouts on EVM.'
-          : 'Send the Solana secret key for NATIVE payouts. Accepted formats: JSON array, base58, or base64.',
+          : 'Send the Solana secret key for NATIVE payouts (JSON array or base64).',
         this.getAdminBackOptions()
       );
       return;
@@ -2297,7 +2297,7 @@ export class RaffleBot {
         msg.chat.id,
         pending.chain === 'evm'
           ? 'Send the private key for TOKEN payouts on EVM.'
-          : 'Send the Solana secret key for TOKEN payouts. Accepted formats: JSON array, base58, or base64.',
+          : 'Send the Solana secret key for TOKEN payouts (JSON array or base64).',
         this.getAdminBackOptions()
       );
       return;
@@ -2325,15 +2325,9 @@ export class RaffleBot {
           `✅ Saved payout signer.\nChain: *${pending.chain.toUpperCase()}*\nMode: *${pending.mode.toUpperCase()}*${pending.mode === 'token' && pending.tokenAddress ? `\nToken: \`${pending.tokenAddress}\`` : ''}\nWallet: \`${walletAddress}\``,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
-      } catch (err: any) {
-        await this.bot.sendMessage(
-          msg.chat.id,
-          `Invalid signer secret for selected chain/mode.\n\n` +
-            `Accepted formats for Solana: JSON array (from Phantom), base58 (44/88 chars), or base64 (64 bytes).\n` +
-            `Error: ${err?.message || err}\n\n` +
-            `Please send your Solana secret key again.`,
-          this.getAdminBackOptions()
-        );
+      } catch (error: any) {
+        const errorMsg = typeof error?.message === 'string' ? error.message : 'Unknown error';
+        await this.bot.sendMessage(msg.chat.id, `❌ Signer secret validation failed:\n${errorMsg}\n\nPlease check your key format and try again.`, this.getAdminBackOptions({ parse_mode: 'Markdown' }));
       }
       return;
     }
@@ -3023,7 +3017,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           msg.chat.id,
           userId,
-          `Using saved token CA: \`${pending.tokenAddress}\`\n\nEnter the total number of tokens to send (as shown in your wallet, e.g., 500).`,
+          `Using saved token CA: \`${pending.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
         return;
@@ -3073,7 +3067,7 @@ export class RaffleBot {
         mode: 'token',
         tokenAddress,
       });
-      await this.renderAdminCard(msg.chat.id, userId, 'Enter the total number of tokens to send (as shown in your wallet, e.g., 500).', this.getAdminBackOptions());
+      await this.renderAdminCard(msg.chat.id, userId, 'How much total token amount should be distributed across all winners? (human units, example: 500).', this.getAdminBackOptions());
       return;
     }
   }

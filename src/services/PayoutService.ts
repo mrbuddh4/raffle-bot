@@ -223,40 +223,29 @@ export class PayoutService {
     return results;
   }
 
-  /**
-   * Accepts Solana secret in JSON array, base58, or base64 format.
-   * Throws with a helpful error if parsing fails.
-   */
   private parseSecretKey(secretRaw: string): Uint8Array {
     const trimmed = secretRaw.trim();
-    // Try JSON array
+
     if (trimmed.startsWith('[')) {
       try {
         const parsed = JSON.parse(trimmed) as number[];
-        if (!Array.isArray(parsed) || !parsed.every((n) => typeof n === 'number')) {
-          throw new Error();
+        if (!Array.isArray(parsed) || parsed.length !== 64) {
+          throw new Error(`Solana secret key array must have exactly 64 elements, got ${parsed.length}`);
         }
         return Uint8Array.from(parsed);
-      } catch {
-        throw new Error('Invalid JSON array for Solana secret key.');
+      } catch (error: any) {
+        throw new Error(`Invalid JSON array format: ${error?.message || 'JSON parse failed'}`);
       }
     }
-    // Try base58 (commonly used for Solana private keys)
-    try {
-      // base58 is typically 44 or 88 chars, but can vary
-      const bs58 = require('bs58');
-      const decoded = bs58.decode(trimmed);
-      if (decoded.length === 64) {
-        return decoded;
-      }
-    } catch {}
-    // Try base64
+
     try {
       const bytes = Buffer.from(trimmed, 'base64');
-      if (bytes.length === 64) {
-        return Uint8Array.from(bytes);
+      if (bytes.length !== 64) {
+        throw new Error(`Solana secret key must be 64 bytes when base64-encoded, got ${bytes.length} bytes`);
       }
-    } catch {}
-    throw new Error('Invalid Solana secret key format. Accepted formats: JSON array, base58, or base64 encoded 64-byte secret.');
+      return Uint8Array.from(bytes);
+    } catch (error: any) {
+      throw new Error(`Invalid base64 format or invalid key length: ${error?.message || 'decoding failed'}`);
+    }
   }
 }
