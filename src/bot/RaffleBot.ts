@@ -207,7 +207,7 @@ export class RaffleBot {
     if (startPayload === 'enter') {
       const user = await this.userService.getByTelegramUserId(userId);
       if (user) {
-        await this.handleCurrentRaffles(msg);
+        await this.sendEnterPicker(chatId, userId, msg.message_id, true);
         return;
       }
 
