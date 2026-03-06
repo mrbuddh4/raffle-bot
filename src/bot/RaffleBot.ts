@@ -2798,6 +2798,8 @@ export class RaffleBot {
 
   private async announceRaffleGoLive(raffle: { title: string; chain: WalletChain; winnerCount: number; allEntrantsWin: boolean; endsAt: Date | null; announcementChatId: number | null; rewardToken: string | null; rewardTotalAmount: number | null }): Promise<void> {
     const registerLink = this.getRegisterLink();
+    const enterLink = this.getBotStartLink('enter') ?? registerLink;
+    const registerStartLink = this.getBotStartLink('register') ?? registerLink;
     const fundingLink = process.env.FUNDING_LINK?.trim();
     const artworkUrl = process.env.RAFFLE_ARTWORK_URL?.trim();
     const goLiveVideoPath = this.getEnterCardVideoPath();
@@ -2814,9 +2816,17 @@ export class RaffleBot {
       raffle.rewardToken && raffle.rewardTotalAmount != null ? `Reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*` : null,
       hoursText,
       utcEndText,
-      registerLink ? `Join/Register: ${registerLink}` : null,
       fundingLink ? `Get Funded: ${fundingLink}` : null,
     ].filter(Boolean).join('\n');
+
+    const goLiveButtons = [
+      enterLink ? { text: '🔥 Enter', url: enterLink } : null,
+      registerStartLink ? { text: '📝 Register', url: registerStartLink } : null,
+    ].filter((button): button is { text: string; url: string } => Boolean(button));
+
+    const goLiveReplyMarkup = goLiveButtons.length > 0
+      ? { inline_keyboard: [goLiveButtons] }
+      : undefined;
 
     const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
     if (targetChatIds.length === 0) {
@@ -2826,7 +2836,11 @@ export class RaffleBot {
     if (goLiveVideoPath) {
       await Promise.all(targetChatIds.map(async (targetChatId) => {
         try {
-          await this.bot.sendVideo(targetChatId, fs.createReadStream(goLiveVideoPath), { caption, parse_mode: 'Markdown' });
+          await this.bot.sendVideo(targetChatId, fs.createReadStream(goLiveVideoPath), {
+            caption,
+            parse_mode: 'Markdown',
+            reply_markup: goLiveReplyMarkup,
+          });
         } catch (error: any) {
           await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
         }
@@ -2837,7 +2851,11 @@ export class RaffleBot {
     if (artworkUrl) {
       await Promise.all(targetChatIds.map(async (targetChatId) => {
         try {
-          await this.bot.sendPhoto(targetChatId, artworkUrl, { caption, parse_mode: 'Markdown' });
+          await this.bot.sendPhoto(targetChatId, artworkUrl, {
+            caption,
+            parse_mode: 'Markdown',
+            reply_markup: goLiveReplyMarkup,
+          });
         } catch (error: any) {
           await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
         }
@@ -2847,7 +2865,10 @@ export class RaffleBot {
 
     await Promise.all(targetChatIds.map(async (targetChatId) => {
       try {
-        await this.bot.sendMessage(targetChatId, caption, { parse_mode: 'Markdown' });
+        await this.bot.sendMessage(targetChatId, caption, {
+          parse_mode: 'Markdown',
+          reply_markup: goLiveReplyMarkup,
+        });
       } catch (error: any) {
         await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
       }
