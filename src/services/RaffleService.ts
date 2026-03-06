@@ -418,15 +418,8 @@ export class RaffleService {
         UPDATE raffles r
         SET alerts_sent_count = r.alerts_sent_count + 1,
             next_hourly_alert_at = CASE
-              WHEN (r.alerts_sent_count + 1) >= $2 THEN NULL
-              ELSE LEAST(
-                r.ends_at - INTERVAL '1 second',
-                r.opened_at
-                  + (
-                    ((r.ends_at - r.opened_at) / (($2 + 1)::double precision))
-                    * ((r.alerts_sent_count + 2)::double precision)
-                  )
-              )
+              WHEN (r.alerts_sent_count + 1) >= $2 OR r.ends_at <= $1 THEN NULL
+              ELSE $1 + ((r.ends_at - $1) / (($2 - r.alerts_sent_count)::double precision))
             END
         FROM due
         WHERE r.id = due.id
