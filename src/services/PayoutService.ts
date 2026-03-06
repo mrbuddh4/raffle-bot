@@ -54,9 +54,17 @@ export class PayoutService {
       return wallet.address;
     }
 
-    const secret = this.parseSecretKey(secretRaw);
-    const payer = Keypair.fromSecretKey(secret);
-    return payer.publicKey.toBase58();
+    try {
+      const secret = this.parseSecretKey(secretRaw);
+      const payer = Keypair.fromSecretKey(secret);
+      return payer.publicKey.toBase58();
+    } catch (error: any) {
+      const msg = typeof error?.message === 'string' ? error.message : 'Unknown error';
+      if (msg.includes('provided secretKey is invalid')) {
+        throw new Error(`Invalid Solana secret key.\n\nTry exporting your key as a JSON array instead of base64 and paste that. For example:\n[1, 2, 3, ... 64 numbers]\n\nOriginal error: ${msg}`);
+      }
+      throw error;
+    }
   }
 
   private async payoutEvm(amountPerWinner: number, targets: PayoutTarget[], signerSecret?: string): Promise<PayoutResult[]> {
@@ -225,7 +233,12 @@ export class PayoutService {
 
   private parseSecretKey(secretRaw: string): Uint8Array {
     // Aggressively strip all whitespace including newlines, tabs, etc.
-    const trimmed = secretRaw.replace(/\s+/g, '').trim();
+    let trimmed = secretRaw.replace(/\s+/g, '').trim();
+
+    // Handle Phantom wallet export: might have extra brackets like [[ ... ]]
+    if (trimmed.startsWith('[[')) {
+      trimmed = trimmed.slice(1, -1); // Remove outer brackets
+    }
 
     if (trimmed.startsWith('[')) {
       try {
@@ -235,7 +248,7 @@ export class PayoutService {
         }
         return Uint8Array.from(parsed);
       } catch (error: any) {
-        throw new Error(`Invalid JSON array format: ${error?.message || 'JSON parse failed'}`);
+        throw new Error(`Invalid JSON array format from Phantom: ${error?.message || 'JSON parse failed'}. Try exporting your private key again.`);
       }
     }
 
@@ -251,7 +264,7 @@ export class PayoutService {
       return bytes.slice(0, 64);
     } catch (error: any) {
       const msg = typeof error?.message === 'string' ? error.message : 'decoding failed';
-      throw new Error(`Invalid base64 format or key length: ${msg}`);
+      throw new Error(`Invalid format from Phantom wallet: ${msg}. Try copying the private key as a JSON array (numbers in square brackets) instead of base64.`);
     }
   }
 }
