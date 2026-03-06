@@ -2771,7 +2771,7 @@ export class RaffleBot {
     if (startLink) {
       await this.bot.sendMessage(
         chatId,
-        'To enter raffles, please continue in DM with me. Tap below to open chat with /start.',
+        'Tap below to open chat.',
         {
           reply_markup: {
             inline_keyboard: [[{ text: '📩 Open DM', url: startLink }]],
@@ -2781,7 +2781,7 @@ export class RaffleBot {
       return;
     }
 
-    await this.bot.sendMessage(chatId, 'To enter raffles, please DM me first and run /start there.');
+    await this.bot.sendMessage(chatId, 'To enter raffles, please DM me first.');
   }
 
   private async sendPayoutWallets(chatId: number, adminId: number, raffleId?: number): Promise<void> {
