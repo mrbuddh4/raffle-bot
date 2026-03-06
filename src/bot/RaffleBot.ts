@@ -3009,7 +3009,6 @@ export class RaffleBot {
     const registerLink = this.getRegisterLink();
     const enterLink = this.getBotStartLink('enter') ?? registerLink;
     const registerStartLink = this.getBotStartLink('register') ?? registerLink;
-    const fundingLink = process.env.FUNDING_LINK?.trim();
     const artworkUrl = process.env.RAFFLE_ARTWORK_URL?.trim();
     const goLiveVideoPath = this.getEnterCardVideoPath();
     const entryCount = await this.raffleService.getEntryCount(raffle.id);
@@ -3040,10 +3039,6 @@ export class RaffleBot {
 
     if (utcEndText) {
       captionLines.push(utcEndText);
-    }
-
-    if (fundingLink) {
-      captionLines.push('', `Get Funded: ${fundingLink}`);
     }
 
     const caption = captionLines.join('\n');
