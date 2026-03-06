@@ -187,6 +187,7 @@ export class RaffleBot {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
     if (!userId) return;
+    const startPayload = msg.text?.trim().split(/\s+/, 2)[1]?.toLowerCase();
 
     if (!(await this.ensureGroupAdminAccess(msg.chat, userId))) {
       return;
@@ -200,6 +201,36 @@ export class RaffleBot {
           'Use /enter to join open raffles.',
           'To set or edit your profile/wallets, DM me with /start then /register or /profile.',
         ].join('\n')
+      );
+      return;
+    }
+
+    if (startPayload === 'enter') {
+      const user = await this.userService.getByTelegramUserId(userId);
+      if (user) {
+        await this.handleCurrentRaffles(msg);
+        return;
+      }
+
+      await this.renderUserCard(
+        chatId,
+        userId,
+        [
+          '📝 *Registration Required*',
+          '',
+          'To enter raffles, register your profile first.',
+          'Tap *Register* below to start.',
+        ].join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📝 Register', callback_data: 'user:register' }],
+              [{ text: '🏠 Home', callback_data: 'user:home' }],
+            ],
+          },
+        },
+        msg.message_id
       );
       return;
     }
@@ -2732,21 +2763,25 @@ export class RaffleBot {
   }
 
   private async sendEnterViaDmPrompt(chatId: number): Promise<void> {
-    const registerLink = this.getRegisterLink();
-    if (registerLink) {
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim();
+    const startLink = botUsername
+      ? `https://t.me/${botUsername.replace(/^@/, '')}?start=enter`
+      : this.getRegisterLink();
+
+    if (startLink) {
       await this.bot.sendMessage(
         chatId,
-        'To enter raffles, please continue in DM with me. Tap below to open chat and use /enter.',
+        'To enter raffles, please continue in DM with me. Tap below to open chat with /start.',
         {
           reply_markup: {
-            inline_keyboard: [[{ text: '📩 Open DM', url: registerLink }]],
+            inline_keyboard: [[{ text: '📩 Open DM', url: startLink }]],
           },
         }
       );
       return;
     }
 
-    await this.bot.sendMessage(chatId, 'To enter raffles, please DM me first and run /enter there.');
+    await this.bot.sendMessage(chatId, 'To enter raffles, please DM me first and run /start there.');
   }
 
   private async sendPayoutWallets(chatId: number, adminId: number, raffleId?: number): Promise<void> {
