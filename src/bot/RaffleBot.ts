@@ -110,9 +110,8 @@ export class RaffleBot {
     ];
 
     const groupCommands: TelegramBot.BotCommand[] = [
-      { command: 'start', description: 'Show group raffle help' },
       { command: 'enter', description: 'Enter open raffles (uses saved profile)' },
-      { command: 'help', description: 'Show group help' },
+      { command: 'register', description: 'Register username + wallet in DM' },
     ];
 
     const adminCommands: TelegramBot.BotCommand[] = [
@@ -124,7 +123,7 @@ export class RaffleBot {
     ];
 
     await this.bot.setMyCommands(userCommands, { scope: { type: 'all_private_chats' } });
-    await this.bot.setMyCommands(groupCommands, { scope: { type: 'all_chat_administrators' } });
+    await this.bot.setMyCommands(groupCommands, { scope: { type: 'all_group_chats' } });
 
     for (const adminId of this.adminIds) {
       await this.bot.setMyCommands(adminCommands, { scope: { type: 'chat', chat_id: adminId } });
