@@ -241,14 +241,14 @@ export class PayoutService {
 
     try {
       const bytes = Buffer.from(trimmed, 'base64');
-      if (bytes.length !== 64) {
-        // If 88 bytes, it might be a full keypair (public + secret)
+      // Accept 64-66 bytes; if 66, use first 64 (might be an export format quirk)
+      if (bytes.length < 64 || bytes.length > 66) {
         if (bytes.length === 88) {
           throw new Error(`Looks like a full keypair export (88 bytes). Please use only the secret key portion (64 bytes).`);
         }
         throw new Error(`Solana secret key must be 64 bytes, got ${bytes.length} bytes`);
       }
-      return Uint8Array.from(bytes);
+      return bytes.slice(0, 64);
     } catch (error: any) {
       const msg = typeof error?.message === 'string' ? error.message : 'decoding failed';
       throw new Error(`Invalid base64 format or key length: ${msg}`);
