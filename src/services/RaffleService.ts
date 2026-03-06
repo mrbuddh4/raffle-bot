@@ -421,7 +421,11 @@ export class RaffleService {
               WHEN (r.alerts_sent_count + 1) >= $2 THEN NULL
               ELSE LEAST(
                 r.ends_at - INTERVAL '1 second',
-                r.opened_at + ((r.ends_at - r.opened_at) * (((r.alerts_sent_count + 2)::numeric) / (($2 + 1)::numeric))
+                r.opened_at
+                  + (
+                    ((r.ends_at - r.opened_at) / (($2 + 1)::double precision))
+                    * ((r.alerts_sent_count + 2)::double precision)
+                  )
               )
             END,
             updated_at = NOW()
