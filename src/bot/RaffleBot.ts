@@ -72,6 +72,7 @@ export class RaffleBot {
   private readonly payrollGroupService: PayrollGroupService;
   private readonly adminIds: Set<number>;
   private botUserId: number | null = null;
+  private botUsername: string | null = null;
   private announcementTimer: NodeJS.Timeout | null = null;
   private readonly pendingByUser = new Map<number, PendingState>();
   private readonly pendingExecutionByUser = new Map<number, PendingExecution>();
@@ -95,6 +96,7 @@ export class RaffleBot {
     this.registerHandlers();
     const me = await this.bot.getMe();
     this.botUserId = me.id;
+    this.botUsername = me.username ? me.username.toLowerCase() : null;
     this.startAnnouncementLoop();
 
     const userCommands: TelegramBot.BotCommand[] = [
@@ -3351,11 +3353,13 @@ export class RaffleBot {
     }
 
     const commandEntity = msg.entities?.find((entity) => entity.type === 'bot_command' && entity.offset === 0);
-    if (!commandEntity) {
+    const commandToken = commandEntity
+      ? text.slice(0, commandEntity.length)
+      : (text.match(/^\/([a-zA-Z0-9_]+(?:@[a-zA-Z0-9_]+)?)/)?.[0] ?? null);
+    if (!commandToken) {
       return null;
     }
 
-    const commandToken = text.slice(0, commandEntity.length);
     if (!commandToken.startsWith('/')) {
       return null;
     }
@@ -3370,8 +3374,9 @@ export class RaffleBot {
     }
 
     if (mentionedBot) {
-      const configuredBotUsername = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '').toLowerCase();
-      if (!configuredBotUsername || configuredBotUsername !== mentionedBot) {
+      const configuredBotUsername = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '').toLowerCase() || null;
+      const expectedBotUsername = this.botUsername || configuredBotUsername;
+      if (expectedBotUsername && expectedBotUsername !== mentionedBot) {
         return null;
       }
     }
