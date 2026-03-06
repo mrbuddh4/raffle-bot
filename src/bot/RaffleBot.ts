@@ -5,6 +5,7 @@ import { RaffleService } from '../services/RaffleService';
 import { UserService } from '../services/UserService';
 import { PayoutService } from '../services/PayoutService';
 import { AdminPayoutWalletService } from '../services/AdminPayoutWalletService';
+import { PayrollGroupService } from '../services/PayrollGroupService';
 import { getAdminIds, getRequiredEnv } from '../utils/env';
 import { isValidWalletForChain, normalizeWallet, parseWalletChain, WalletChain } from '../utils/validators';
 
@@ -21,6 +22,13 @@ type PendingState =
   | { type: 'create_raffle_reward_token'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number }
   | { type: 'create_raffle_reward_amount'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number; rewardToken: string }
   | { type: 'csv_upload' }
+  | { type: 'payroll_chain' }
+  | { type: 'payroll_mode'; chain: WalletChain }
+  | { type: 'payroll_token_address'; chain: WalletChain }
+  | { type: 'payroll_csv_upload'; chain: WalletChain; mode: 'native' | 'token'; tokenAddress?: string }
+  | { type: 'payroll_confirm' }
+  | { type: 'payroll_save_group_name' }
+  | { type: 'payroll_group_update_upload'; groupId: number; chain: WalletChain; mode: 'native' | 'token'; tokenAddress?: string }
   | { type: 'set_payout_chain' }
   | { type: 'set_payout_mode'; chain: WalletChain }
   | { type: 'set_payout_secret'; chain: WalletChain; mode: 'native' | 'token' }
@@ -44,17 +52,30 @@ interface PendingExecution {
   targets: Array<{ rank: number; walletAddress: string }>;
 }
 
+interface PendingPayrollExecution {
+  chain: WalletChain;
+  mode: 'native' | 'token';
+  tokenAddress?: string;
+  groupName?: string;
+  groupId?: number;
+  signerSecret: string;
+  signerWalletAddress: string;
+  targets: Array<{ walletAddress: string; amount: number }>;
+}
+
 export class RaffleBot {
   private readonly bot: TelegramBot;
   private readonly userService: UserService;
   private readonly raffleService: RaffleService;
   private readonly payoutService: PayoutService;
   private readonly adminPayoutWalletService: AdminPayoutWalletService;
+  private readonly payrollGroupService: PayrollGroupService;
   private readonly adminIds: Set<number>;
   private botUserId: number | null = null;
   private announcementTimer: NodeJS.Timeout | null = null;
   private readonly pendingByUser = new Map<number, PendingState>();
   private readonly pendingExecutionByUser = new Map<number, PendingExecution>();
+  private readonly pendingPayrollByUser = new Map<number, PendingPayrollExecution>();
   private readonly userCardByUser = new Map<number, { chatId: number; messageId: number }>();
   private readonly adminCardByUser = new Map<number, { chatId: number; messageId: number }>();
 
@@ -64,6 +85,7 @@ export class RaffleBot {
     this.raffleService = new RaffleService(pool);
     this.payoutService = new PayoutService();
     this.adminPayoutWalletService = new AdminPayoutWalletService(pool);
+    this.payrollGroupService = new PayrollGroupService(pool);
     this.adminIds = getAdminIds();
   }
 
@@ -672,6 +694,8 @@ export class RaffleBot {
             [{ text: '❌ Cancel Active Raffle', callback_data: 'admin:cancel_raffle' }],
             [{ text: '📦 Payout Wallet List', callback_data: 'admin:payouts' }],
             [{ text: '🚀 Execute On-chain Payout', callback_data: 'admin:execute_payout' }],
+            [{ text: '💼 Payroll CSV', callback_data: 'admin:payroll' }],
+            [{ text: '🗂 Payroll Groups', callback_data: 'admin:payroll_groups' }],
             [{ text: '✅ Mark Winner Paid', callback_data: 'admin:mark_paid' }],
             [{ text: '📄 Upload CSV', callback_data: 'admin:csv' }],
           ],
@@ -1285,6 +1309,369 @@ export class RaffleBot {
       return;
     }
 
+    if (data === 'admin:payroll') {
+      this.pendingPayrollByUser.delete(userId);
+      this.pendingByUser.delete(userId);
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        '💼 *Payroll*\n\nChoose payroll action:',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📤 Run CSV Payroll', callback_data: 'admin:payroll_run' }],
+              [{ text: '🗂 Payroll Groups', callback_data: 'admin:payroll_groups' }],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        },
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:payroll_run') {
+      this.pendingPayrollByUser.delete(userId);
+      this.pendingByUser.set(userId, { type: 'payroll_chain' });
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        '💼 *Payroll CSV*\n\nChoose payout chain:',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🟣 EVM', callback_data: 'admin:payroll_chain:evm' },
+                { text: '🟢 Solana', callback_data: 'admin:payroll_chain:solana' },
+              ],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        },
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:payroll_groups') {
+      await this.sendPayrollGroups(chatId, userId, query.message?.message_id);
+      return;
+    }
+
+    if (data.startsWith('admin:payroll_group_select:')) {
+      const groupId = Number(data.split(':')[2]);
+      if (!Number.isInteger(groupId)) {
+        await this.renderAdminCard(chatId, userId, 'Invalid payroll group selection.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      await this.sendPayrollGroupDetails(chatId, userId, groupId, query.message?.message_id);
+      return;
+    }
+
+    if (data.startsWith('admin:payroll_group_execute:')) {
+      const groupId = Number(data.split(':')[2]);
+      if (!Number.isInteger(groupId)) {
+        await this.renderAdminCard(chatId, userId, 'Invalid payroll group selection.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      const group = await this.payrollGroupService.getGroupById(userId, groupId);
+      if (!group) {
+        await this.renderAdminCard(chatId, userId, 'Payroll group not found.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      const items = await this.payrollGroupService.getGroupItems(groupId);
+      if (items.length === 0) {
+        await this.renderAdminCard(chatId, userId, 'Payroll group has no members.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      const signer = await this.adminPayoutWalletService.getWallet(userId, group.chain, group.mode);
+      if (!signer) {
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          `No payout signer configured for *${group.chain.toUpperCase()} ${group.mode.toUpperCase()}*.`,
+          this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+          query.message?.message_id
+        );
+        return;
+      }
+
+      const targets = items.map((item) => ({ walletAddress: item.walletAddress, amount: item.amount }));
+      const totalAmount = targets.reduce((sum, target) => sum + target.amount, 0);
+
+      this.pendingPayrollByUser.set(userId, {
+        chain: group.chain,
+        mode: group.mode,
+        tokenAddress: group.tokenAddress ?? undefined,
+        groupName: group.name,
+        groupId: group.id,
+        signerSecret: signer.secret,
+        signerWalletAddress: signer.walletAddress,
+        targets,
+      });
+      this.pendingByUser.set(userId, { type: 'payroll_confirm' });
+
+      const previewLines = targets.slice(0, 8).map((target) => `• ${target.amount} → \`${target.walletAddress}\``);
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        [
+          `🧾 *Payroll Group Preview*`,
+          `Group: *${group.name}*`,
+          `Chain: *${group.chain.toUpperCase()}*`,
+          `Mode: *${group.mode.toUpperCase()}*`,
+          group.tokenAddress ? `Token: \`${group.tokenAddress}\`` : null,
+          `Rows: *${targets.length}*`,
+          `Total amount: *${totalAmount}*`,
+          '',
+          '*Sample rows:*',
+          ...previewLines,
+          targets.length > previewLines.length ? `...and *${targets.length - previewLines.length}* more` : null,
+          '',
+          'Confirm payroll execution?',
+        ].filter(Boolean).join('\n'),
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Confirm Payroll', callback_data: 'admin:payroll_confirm' }],
+              [{ text: '❌ Cancel', callback_data: 'admin:payroll_cancel' }],
+            ],
+          },
+        },
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data.startsWith('admin:payroll_group_update:')) {
+      const groupId = Number(data.split(':')[2]);
+      if (!Number.isInteger(groupId)) {
+        await this.renderAdminCard(chatId, userId, 'Invalid payroll group selection.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      const group = await this.payrollGroupService.getGroupById(userId, groupId);
+      if (!group) {
+        await this.renderAdminCard(chatId, userId, 'Payroll group not found.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      this.pendingByUser.set(userId, {
+        type: 'payroll_group_update_upload',
+        groupId: group.id,
+        chain: group.chain,
+        mode: group.mode,
+        tokenAddress: group.tokenAddress ?? undefined,
+      });
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        `🔄 *Update Payroll Group*\n\nGroup: *${group.name}*\nUpload replacement CSV now.\nRequired headers: *wallet_address,amount*`,
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data.startsWith('admin:payroll_group_delete:')) {
+      const groupId = Number(data.split(':')[2]);
+      if (!Number.isInteger(groupId)) {
+        await this.renderAdminCard(chatId, userId, 'Invalid payroll group selection.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      const removed = await this.payrollGroupService.deleteGroup(userId, groupId);
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        removed ? '🗑 Payroll group deleted.' : 'Payroll group not found.',
+        {
+          reply_markup: {
+            inline_keyboard: [[{ text: '⬅️ Back to Payroll Groups', callback_data: 'admin:payroll_groups' }]],
+          },
+        },
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:payroll_save_group') {
+      const execution = this.pendingPayrollByUser.get(userId);
+      if (!execution) {
+        await this.renderAdminCard(chatId, userId, 'No payroll preview to save. Start payroll first.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      this.pendingByUser.set(userId, { type: 'payroll_save_group_name' });
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        'Send a name for this payroll group (example: RAID team, KOL team).',
+        this.getAdminBackOptions(),
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:payroll_chain:evm' || data === 'admin:payroll_chain:solana') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'payroll_chain') {
+        return;
+      }
+
+      const chain: WalletChain = data.endsWith(':evm') ? 'evm' : 'solana';
+      this.pendingByUser.set(userId, { type: 'payroll_mode', chain });
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        `💼 *Payroll CSV*\n\nChain: *${chain.toUpperCase()}*\nChoose payout mode:`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '💰 Native', callback_data: 'admin:payroll_mode:native' },
+                { text: '🪙 Token', callback_data: 'admin:payroll_mode:token' },
+              ],
+              [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+            ],
+          },
+        },
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:payroll_mode:native' || data === 'admin:payroll_mode:token') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'payroll_mode') {
+        return;
+      }
+
+      const mode: 'native' | 'token' = data.endsWith(':native') ? 'native' : 'token';
+      if (mode === 'token') {
+        this.pendingByUser.set(userId, { type: 'payroll_token_address', chain: pending.chain });
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          pending.chain === 'evm'
+            ? '💼 *Payroll CSV*\n\nSend ERC-20 token contract address (0x...) for payroll.'
+            : '💼 *Payroll CSV*\n\nSend SPL token mint address for payroll.',
+          this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+          query.message?.message_id
+        );
+        return;
+      }
+
+      this.pendingByUser.set(userId, { type: 'payroll_csv_upload', chain: pending.chain, mode: 'native' });
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        `💼 *Payroll CSV*\n\nUpload payroll CSV now.\nRequired headers: *wallet_address,amount*\nChain: *${pending.chain.toUpperCase()}*\nMode: *NATIVE*`,
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:payroll_confirm') {
+      const execution = this.pendingPayrollByUser.get(userId);
+      if (!execution) {
+        this.pendingByUser.delete(userId);
+        await this.renderAdminCard(chatId, userId, 'No pending payroll found. Please start again.', this.getAdminBackOptions(), query.message?.message_id);
+        return;
+      }
+
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        `⏳ Processing payroll for *${execution.targets.length}* wallet(s)...`,
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        query.message?.message_id
+      );
+
+      const success: Array<{ walletAddress: string; amount: number; txHash: string }> = [];
+      const failures: Array<{ walletAddress: string; amount: number; error: string }> = [];
+
+      for (let index = 0; index < execution.targets.length; index += 1) {
+        const target = execution.targets[index];
+        try {
+          const payoutResults = execution.mode === 'native'
+            ? await this.payoutService.payoutNative(
+                execution.chain,
+                target.amount,
+                [{ rank: index + 1, walletAddress: target.walletAddress }],
+                execution.signerSecret
+              )
+            : await this.payoutService.payoutToken(
+                execution.chain,
+                execution.tokenAddress!,
+                target.amount,
+                [{ rank: index + 1, walletAddress: target.walletAddress }],
+                execution.signerSecret
+              );
+
+          const txHash = payoutResults[0]?.txHash ?? 'unknown';
+          success.push({ walletAddress: target.walletAddress, amount: target.amount, txHash });
+        } catch (error: any) {
+          failures.push({
+            walletAddress: target.walletAddress,
+            amount: target.amount,
+            error: error?.message || 'unknown error',
+          });
+        }
+      }
+
+      const totalAmount = execution.targets.reduce((sum, target) => sum + target.amount, 0);
+      const successAmount = success.reduce((sum, item) => sum + item.amount, 0);
+
+      this.pendingPayrollByUser.delete(userId);
+      this.pendingByUser.delete(userId);
+
+      const successLines = success.slice(0, 8).map((item) => `✅ ${item.amount} → \`${item.walletAddress}\`\nTx: \`${item.txHash}\``);
+      const failureLines = failures.slice(0, 5).map((item) => `❌ ${item.amount} → \`${item.walletAddress}\`\nReason: ${item.error}`);
+
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        [
+          '💼 *Payroll Complete*',
+          execution.groupName ? `Group: *${execution.groupName}*` : null,
+          `Chain: *${execution.chain.toUpperCase()}*`,
+          `Mode: *${execution.mode.toUpperCase()}*`,
+          execution.tokenAddress ? `Token: \`${execution.tokenAddress}\`` : null,
+          `From wallet: \`${execution.signerWalletAddress}\``,
+          `Rows processed: *${execution.targets.length}*`,
+          `Successful: *${success.length}* (${successAmount})`,
+          `Failed: *${failures.length}*`,
+          `CSV total amount: *${totalAmount}*`,
+          successLines.length > 0 ? '' : null,
+          successLines.length > 0 ? '*Successful sends (sample):*' : null,
+          ...successLines,
+          failureLines.length > 0 ? '' : null,
+          failureLines.length > 0 ? '*Failed sends (sample):*' : null,
+          ...failureLines,
+        ].filter(Boolean).join('\n'),
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:payroll_cancel') {
+      this.pendingPayrollByUser.delete(userId);
+      this.pendingByUser.delete(userId);
+      await this.renderAdminCard(chatId, userId, 'Payroll cancelled.', this.getAdminBackOptions(), query.message?.message_id);
+      return;
+    }
+
     if (data === 'admin:mark_paid') {
       const raffleId = await this.raffleService.getLastCompletedRaffleIdByCreator(userId);
       if (!raffleId) {
@@ -1349,6 +1736,38 @@ export class RaffleBot {
 
       await this.handleCsvUpload(msg);
       this.pendingByUser.delete(userId);
+      return;
+    }
+
+    if (pending.type === 'payroll_csv_upload') {
+      if (!this.isAdmin(userId)) return;
+      if (!msg.document) {
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          'Please upload a CSV file as a document. Required headers: *wallet_address,amount*',
+          this.getAdminBackOptions({ parse_mode: 'Markdown' })
+        );
+        return;
+      }
+
+      await this.handlePayrollCsvUpload(msg, pending);
+      return;
+    }
+
+    if (pending.type === 'payroll_group_update_upload') {
+      if (!this.isAdmin(userId)) return;
+      if (!msg.document) {
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          'Please upload a CSV file as a document. Required headers: *wallet_address,amount*',
+          this.getAdminBackOptions({ parse_mode: 'Markdown' })
+        );
+        return;
+      }
+
+      await this.handlePayrollGroupCsvUpdate(msg, pending);
       return;
     }
 
@@ -1466,6 +1885,79 @@ export class RaffleBot {
     }
 
     if (!text) {
+      return;
+    }
+
+    if (pending.type === 'payroll_token_address') {
+      const valid = isValidWalletForChain(text, pending.chain);
+      if (!valid) {
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          pending.chain === 'evm' ? 'Invalid ERC-20 token address.' : 'Invalid SPL token mint address.',
+          this.getAdminBackOptions()
+        );
+        return;
+      }
+
+      const tokenAddress = normalizeWallet(text);
+      this.pendingByUser.set(userId, {
+        type: 'payroll_csv_upload',
+        chain: pending.chain,
+        mode: 'token',
+        tokenAddress,
+      });
+      await this.renderAdminCard(
+        msg.chat.id,
+        userId,
+        `💼 *Payroll CSV*\n\nUpload payroll CSV now.\nRequired headers: *wallet_address,amount*\nChain: *${pending.chain.toUpperCase()}*\nMode: *TOKEN*\nToken: \`${tokenAddress}\``,
+        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      );
+      return;
+    }
+
+    if (pending.type === 'payroll_save_group_name') {
+      const execution = this.pendingPayrollByUser.get(userId);
+      const groupName = text.trim();
+      if (!execution) {
+        this.pendingByUser.delete(userId);
+        await this.renderAdminCard(msg.chat.id, userId, 'No payroll preview to save.', this.getAdminBackOptions());
+        return;
+      }
+
+      if (!groupName) {
+        await this.renderAdminCard(msg.chat.id, userId, 'Group name cannot be empty. Send a valid name.', this.getAdminBackOptions());
+        return;
+      }
+
+      const savedGroup = await this.payrollGroupService.upsertGroupWithItems({
+        adminTelegramUserId: userId,
+        name: groupName,
+        chain: execution.chain,
+        mode: execution.mode,
+        tokenAddress: execution.tokenAddress,
+        items: execution.targets,
+      });
+
+      execution.groupName = savedGroup.name;
+      execution.groupId = savedGroup.id;
+      this.pendingPayrollByUser.set(userId, execution);
+      this.pendingByUser.set(userId, { type: 'payroll_confirm' });
+
+      await this.renderAdminCard(
+        msg.chat.id,
+        userId,
+        `✅ Saved payroll group *${savedGroup.name}* with *${execution.targets.length}* rows.\nYou can now confirm payroll or cancel.`,
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Confirm Payroll', callback_data: 'admin:payroll_confirm' }],
+              [{ text: '❌ Cancel', callback_data: 'admin:payroll_cancel' }],
+            ],
+          },
+        }
+      );
       return;
     }
 
@@ -2243,6 +2735,268 @@ export class RaffleBot {
       chatId,
       `✅ CSV processed. Added *${inserted}* entries to *${activeRaffle.title}*.\nTotal entries: *${total}*`,
       this.getAdminBackOptions({ parse_mode: 'Markdown' })
+    );
+  }
+
+  private async handlePayrollCsvUpload(
+    msg: Message,
+    pending: Extract<PendingState, { type: 'payroll_csv_upload' }>
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const adminId = msg.from?.id;
+    const fileId = msg.document?.file_id;
+
+    if (!adminId || !fileId || !this.isAdmin(adminId)) {
+      await this.bot.sendMessage(chatId, 'Admin only.');
+      return;
+    }
+
+    const signer = await this.adminPayoutWalletService.getWallet(adminId, pending.chain, pending.mode);
+    if (!signer) {
+      await this.renderAdminCard(
+        chatId,
+        adminId,
+        `No payout signer configured for *${pending.chain.toUpperCase()} ${pending.mode.toUpperCase()}*. Use *Set Payout Wallet* first.`,
+        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      );
+      return;
+    }
+
+    const fileUrl = await this.bot.getFileLink(fileId);
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      await this.renderAdminCard(chatId, adminId, `Failed to download CSV: ${response.status}`, this.getAdminBackOptions());
+      return;
+    }
+
+    const csvRaw = await response.text();
+    const rows = parse(csvRaw, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Array<Record<string, string>>;
+
+    const targets: Array<{ walletAddress: string; amount: number }> = [];
+    let invalidRows = 0;
+
+    for (const row of rows) {
+      const walletRaw = row.wallet_address || row.wallet || row.address;
+      const amountRaw = row.amount || row.value;
+      const amount = Number(amountRaw);
+
+      if (!walletRaw || !Number.isFinite(amount) || amount <= 0 || !isValidWalletForChain(walletRaw, pending.chain)) {
+        invalidRows += 1;
+        continue;
+      }
+
+      targets.push({ walletAddress: normalizeWallet(walletRaw), amount });
+    }
+
+    if (targets.length === 0) {
+      await this.renderAdminCard(
+        chatId,
+        adminId,
+        'No valid payroll rows found. Required headers: *wallet_address,amount*',
+        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      );
+      return;
+    }
+
+    const totalAmount = targets.reduce((sum, target) => sum + target.amount, 0);
+    this.pendingPayrollByUser.set(adminId, {
+      chain: pending.chain,
+      mode: pending.mode,
+      tokenAddress: pending.tokenAddress,
+      signerSecret: signer.secret,
+      signerWalletAddress: signer.walletAddress,
+      targets,
+    });
+    this.pendingByUser.set(adminId, { type: 'payroll_confirm' });
+
+    const previewLines = targets.slice(0, 8).map((target) => `• ${target.amount} → \`${target.walletAddress}\``);
+    await this.renderAdminCard(
+      chatId,
+      adminId,
+      [
+        '🧾 *Payroll Preview*',
+        `Chain: *${pending.chain.toUpperCase()}*`,
+        `Mode: *${pending.mode.toUpperCase()}*`,
+        pending.tokenAddress ? `Token: \`${pending.tokenAddress}\`` : null,
+        `From wallet: \`${signer.walletAddress}\``,
+        `Valid rows: *${targets.length}*`,
+        `Skipped rows: *${invalidRows}*`,
+        `Total amount: *${totalAmount}*`,
+        '',
+        '*Sample rows:*',
+        ...previewLines,
+        targets.length > previewLines.length ? `...and *${targets.length - previewLines.length}* more` : null,
+        '',
+        'Confirm payroll execution?',
+      ].filter(Boolean).join('\n'),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Confirm Payroll', callback_data: 'admin:payroll_confirm' }],
+            [{ text: '💾 Save as Group', callback_data: 'admin:payroll_save_group' }],
+            [{ text: '❌ Cancel', callback_data: 'admin:payroll_cancel' }],
+          ],
+        },
+      }
+    );
+  }
+
+  private async handlePayrollGroupCsvUpdate(
+    msg: Message,
+    pending: Extract<PendingState, { type: 'payroll_group_update_upload' }>
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const adminId = msg.from?.id;
+    const fileId = msg.document?.file_id;
+
+    if (!adminId || !fileId || !this.isAdmin(adminId)) {
+      await this.bot.sendMessage(chatId, 'Admin only.');
+      return;
+    }
+
+    const group = await this.payrollGroupService.getGroupById(adminId, pending.groupId);
+    if (!group) {
+      this.pendingByUser.delete(adminId);
+      await this.renderAdminCard(chatId, adminId, 'Payroll group not found.', this.getAdminBackOptions());
+      return;
+    }
+
+    const fileUrl = await this.bot.getFileLink(fileId);
+    const response = await fetch(fileUrl);
+    if (!response.ok) {
+      await this.renderAdminCard(chatId, adminId, `Failed to download CSV: ${response.status}`, this.getAdminBackOptions());
+      return;
+    }
+
+    const csvRaw = await response.text();
+    const rows = parse(csvRaw, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Array<Record<string, string>>;
+
+    const items: Array<{ walletAddress: string; amount: number }> = [];
+    let invalidRows = 0;
+
+    for (const row of rows) {
+      const walletRaw = row.wallet_address || row.wallet || row.address;
+      const amountRaw = row.amount || row.value;
+      const amount = Number(amountRaw);
+
+      if (!walletRaw || !Number.isFinite(amount) || amount <= 0 || !isValidWalletForChain(walletRaw, pending.chain)) {
+        invalidRows += 1;
+        continue;
+      }
+
+      items.push({ walletAddress: normalizeWallet(walletRaw), amount });
+    }
+
+    if (items.length === 0) {
+      await this.renderAdminCard(
+        chatId,
+        adminId,
+        'No valid rows found in CSV. Required headers: *wallet_address,amount*',
+        this.getAdminBackOptions({ parse_mode: 'Markdown' })
+      );
+      return;
+    }
+
+    await this.payrollGroupService.upsertGroupWithItems({
+      adminTelegramUserId: adminId,
+      name: group.name,
+      chain: group.chain,
+      mode: group.mode,
+      tokenAddress: group.tokenAddress ?? undefined,
+      items,
+    });
+
+    this.pendingByUser.delete(adminId);
+    await this.renderAdminCard(
+      chatId,
+      adminId,
+      `✅ Updated payroll group *${group.name}*.\nRows imported: *${items.length}*\nSkipped rows: *${invalidRows}*`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '⬅️ Back to Payroll Groups', callback_data: 'admin:payroll_groups' }]],
+        },
+      }
+    );
+  }
+
+  private async sendPayrollGroups(chatId: number, adminId: number, preferredMessageId?: number): Promise<void> {
+    const groups = await this.payrollGroupService.listGroups(adminId);
+    if (groups.length === 0) {
+      await this.renderAdminCard(
+        chatId,
+        adminId,
+        'No payroll groups saved yet. Run *Payroll CSV* and use *Save as Group* after preview.',
+        this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+        preferredMessageId
+      );
+      return;
+    }
+
+    const lines = groups.map((group) => `${group.id}. *${group.name}* · ${group.chain.toUpperCase()} · ${group.mode.toUpperCase()}`);
+    const buttons = groups.slice(0, 20).map((group) => ([{ text: `🗂 ${group.name}`, callback_data: `admin:payroll_group_select:${group.id}` }]));
+
+    await this.renderAdminCard(
+      chatId,
+      adminId,
+      `🗂 *Payroll Groups*\n\n${lines.join('\n')}`,
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [...buttons, [{ text: '⬅️ Back to Payroll', callback_data: 'admin:payroll' }]],
+        },
+      },
+      preferredMessageId
+    );
+  }
+
+  private async sendPayrollGroupDetails(chatId: number, adminId: number, groupId: number, preferredMessageId?: number): Promise<void> {
+    const group = await this.payrollGroupService.getGroupById(adminId, groupId);
+    if (!group) {
+      await this.renderAdminCard(chatId, adminId, 'Payroll group not found.', this.getAdminBackOptions(), preferredMessageId);
+      return;
+    }
+
+    const items = await this.payrollGroupService.getGroupItems(group.id);
+    const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+    const preview = items.slice(0, 6).map((item) => `• ${item.amount} → \`${item.walletAddress}\``);
+
+    await this.renderAdminCard(
+      chatId,
+      adminId,
+      [
+        `🗂 *Payroll Group: ${group.name}*`,
+        `Chain: *${group.chain.toUpperCase()}*`,
+        `Mode: *${group.mode.toUpperCase()}*`,
+        group.tokenAddress ? `Token: \`${group.tokenAddress}\`` : null,
+        `Rows: *${items.length}*`,
+        `Total amount: *${totalAmount}*`,
+        '',
+        '*Sample rows:*',
+        ...preview,
+        items.length > preview.length ? `...and *${items.length - preview.length}* more` : null,
+      ].filter(Boolean).join('\n'),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🚀 Execute Group', callback_data: `admin:payroll_group_execute:${group.id}` }],
+            [{ text: '🔄 Update Group CSV', callback_data: `admin:payroll_group_update:${group.id}` }],
+            [{ text: '🗑 Delete Group', callback_data: `admin:payroll_group_delete:${group.id}` }],
+            [{ text: '⬅️ Back to Payroll Groups', callback_data: 'admin:payroll_groups' }],
+          ],
+        },
+      },
+      preferredMessageId
     );
   }
 

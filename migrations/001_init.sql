@@ -66,6 +66,30 @@ CREATE TABLE IF NOT EXISTS admin_payout_wallets (
   UNIQUE(admin_telegram_user_id, chain, mode)
 );
 
+CREATE TABLE IF NOT EXISTS payroll_groups (
+  id SERIAL PRIMARY KEY,
+  admin_telegram_user_id BIGINT NOT NULL,
+  name TEXT NOT NULL,
+  chain TEXT NOT NULL CHECK (chain IN ('evm', 'solana')),
+  mode TEXT NOT NULL CHECK (mode IN ('native', 'token')),
+  token_address TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(admin_telegram_user_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS payroll_group_items (
+  id SERIAL PRIMARY KEY,
+  payroll_group_id INTEGER NOT NULL REFERENCES payroll_groups(id) ON DELETE CASCADE,
+  wallet_address TEXT NOT NULL,
+  amount NUMERIC NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(payroll_group_id, wallet_address)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_groups_admin_id ON payroll_groups(admin_telegram_user_id);
+CREATE INDEX IF NOT EXISTS idx_payroll_group_items_group_id ON payroll_group_items(payroll_group_id);
+
 ALTER SEQUENCE admin_payout_wallets_id_seq OWNED BY admin_payout_wallets.id;
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_chain TEXT;
