@@ -147,8 +147,6 @@ export class RaffleBot {
     this.bot.onText(/\/profile/, (msg) => void this.handleProfile(msg));
     this.bot.onText(/\/currentraffles/, (msg) => void this.handleCurrentRaffles(msg));
     this.bot.onText(/\/help/, (msg) => void this.handleHelp(msg));
-    this.bot.onText(/\/register/, (msg) => void this.beginRegistration(msg));
-    this.bot.onText(/\/enter/, (msg) => void this.handleEnterCommand(msg));
     this.bot.onText(/\/admin/, (msg) => void this.showAdminPanel(msg));
     this.bot.onText(/\/myraffles/, (msg) => void this.handleMyRaffles(msg));
     this.bot.onText(/\/setpayout/, (msg) => void this.handleSetPayoutWallet(msg));
@@ -1875,6 +1873,16 @@ export class RaffleBot {
     const text = msg.text?.trim();
     if (!userId) return;
 
+    const command = this.getMessageCommand(msg);
+    if (command === 'register') {
+      await this.beginRegistration(msg);
+      return;
+    }
+    if (command === 'enter') {
+      await this.handleEnterCommand(msg);
+      return;
+    }
+
     const pending = this.pendingByUser.get(userId);
     if (!pending) return;
 
@@ -3334,6 +3342,41 @@ export class RaffleBot {
     } catch {
       // ignore cleanup failures
     }
+  }
+
+  private getMessageCommand(msg: Message): string | null {
+    const text = msg.text;
+    if (!text) {
+      return null;
+    }
+
+    const commandEntity = msg.entities?.find((entity) => entity.type === 'bot_command' && entity.offset === 0);
+    if (!commandEntity) {
+      return null;
+    }
+
+    const commandToken = text.slice(0, commandEntity.length);
+    if (!commandToken.startsWith('/')) {
+      return null;
+    }
+
+    const commandBody = commandToken.slice(1);
+    const parts = commandBody.split('@');
+    const command = parts[0]?.toLowerCase();
+    const mentionedBot = parts[1]?.toLowerCase();
+
+    if (!command) {
+      return null;
+    }
+
+    if (mentionedBot) {
+      const configuredBotUsername = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '').toLowerCase();
+      if (!configuredBotUsername || configuredBotUsername !== mentionedBot) {
+        return null;
+      }
+    }
+
+    return command;
   }
 
   private isAdmin(userId: number): boolean {
