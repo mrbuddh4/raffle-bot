@@ -1601,6 +1601,25 @@ export class RaffleBot {
         return;
       }
 
+      const signer = await this.adminPayoutWalletService.getWallet(userId, pending.chain, 'token');
+      if (signer?.tokenAddress) {
+        this.pendingByUser.set(userId, {
+          type: 'execute_payout_amount',
+          raffleId: pending.raffleId,
+          chain: pending.chain,
+          mode: 'token',
+          tokenAddress: signer.tokenAddress,
+        });
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          `Using saved token CA: \`${signer.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
+          this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+          query.message?.message_id
+        );
+        return;
+      }
+
       this.pendingByUser.set(userId, { type: 'execute_payout_token_address', raffleId: pending.raffleId, chain: pending.chain });
       await this.renderAdminCard(
         chatId,
@@ -2902,6 +2921,24 @@ export class RaffleBot {
           userId,
           `Send native amount per winner for ${pending.chain.toUpperCase()} (example: 0.01).`,
           this.getAdminBackOptions()
+        );
+        return;
+      }
+
+      const signer = await this.adminPayoutWalletService.getWallet(userId, pending.chain, 'token');
+      if (signer?.tokenAddress) {
+        this.pendingByUser.set(userId, {
+          type: 'execute_payout_amount',
+          raffleId: pending.raffleId,
+          chain: pending.chain,
+          mode: 'token',
+          tokenAddress: signer.tokenAddress,
+        });
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          `Using saved token CA: \`${signer.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
+          this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
         return;
       }
