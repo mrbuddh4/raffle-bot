@@ -78,6 +78,7 @@ export class RaffleBot {
   private botUserId: number | null = null;
   private botUsername: string | null = null;
   private announcementTimer: NodeJS.Timeout | null = null;
+  private isProcessingAnnouncements = false;
   private readonly pendingByUser = new Map<number, PendingState>();
   private readonly pendingExecutionByUser = new Map<number, PendingExecution>();
   private readonly pendingPayrollByUser = new Map<number, PendingPayrollExecution>();
@@ -2991,6 +2992,13 @@ export class RaffleBot {
   }
 
   private async processTimedAnnouncements(): Promise<void> {
+    if (this.isProcessingAnnouncements) {
+      return;
+    }
+
+    this.isProcessingAnnouncements = true;
+
+    try {
     const now = new Date();
 
     const endedRaffles = await this.raffleService.getRafflesPastEnd(now);
@@ -2998,10 +3006,12 @@ export class RaffleBot {
       await this.maybeAutoDrawRaffle(raffle.id, true);
     }
 
-    const liveRafflesNeedingAlert = await this.raffleService.getRafflesNeedingHourlyAlert(now);
+    const liveRafflesNeedingAlert = await this.raffleService.claimDueRaffleAlerts(now, 5);
     for (const raffle of liveRafflesNeedingAlert) {
       await this.announceRaffleGoLive(raffle);
-      await this.raffleService.advanceRaffleAlertSchedule(raffle.id, 5);
+    }
+    } finally {
+      this.isProcessingAnnouncements = false;
     }
   }
 

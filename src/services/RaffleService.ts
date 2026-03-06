@@ -400,6 +400,43 @@ export class RaffleService {
     return result.rows.map((row) => this.mapRaffle(row));
   }
 
+  async claimDueRaffleAlerts(now: Date, totalAlerts = 5): Promise<Raffle[]> {
+    const result = await this.pool.query(
+      `
+      WITH due AS (
+        SELECT id
+        FROM raffles
+        WHERE status = 'open'
+          AND ends_at IS NOT NULL
+          AND announcement_chat_id IS NOT NULL
+          AND next_hourly_alert_at IS NOT NULL
+          AND alerts_sent_count < $2
+          AND next_hourly_alert_at <= $1
+        ORDER BY next_hourly_alert_at ASC
+        FOR UPDATE SKIP LOCKED
+      ), updated AS (
+        UPDATE raffles r
+        SET alerts_sent_count = r.alerts_sent_count + 1,
+            next_hourly_alert_at = CASE
+              WHEN (r.alerts_sent_count + 1) >= $2 THEN NULL
+              ELSE LEAST(
+                r.ends_at - INTERVAL '1 second',
+                r.opened_at + ((r.ends_at - r.opened_at) * (((r.alerts_sent_count + 2)::numeric) / (($2 + 1)::numeric))
+              )
+            END,
+            updated_at = NOW()
+        FROM due
+        WHERE r.id = due.id
+        RETURNING r.id, r.title, r.winner_count, r.chain, r.status, r.created_by, r.announcement_chat_id, r.all_entrants_win, r.ends_at, r.next_hourly_alert_at, r.reward_token, r.reward_total_amount
+      )
+      SELECT * FROM updated
+      `,
+      [now, totalAlerts]
+    );
+
+    return result.rows.map((row) => this.mapRaffle(row));
+  }
+
   async bumpNextHourlyAlert(raffleId: number, nextAlertAt: Date): Promise<void> {
     await this.pool.query(
       `
