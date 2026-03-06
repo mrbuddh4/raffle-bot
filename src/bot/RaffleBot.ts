@@ -2908,27 +2908,39 @@ export class RaffleBot {
     );
     const raffleBlocks = openRaffles.map((raffle) => {
       const timeLeft = this.formatTimeRemaining(raffle.endsAt);
+      const winnersText = `Winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}`;
+      const enteredText = `Entered: ${entryCounts.get(raffle.id) ?? 0}`;
+      const chainText = `Chain: ${raffle.chain.toUpperCase()}`;
       return [
         `• ${raffle.title}`,
         '',
-        `Winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}`,
-        `Entered: ${entryCounts.get(raffle.id) ?? 0}`,
-        timeLeft,
+        winnersText,
+        enteredText,
+        timeLeft ?? '',
         '',
-        `Chain: ${raffle.chain.toUpperCase()}`,
-      ].filter(Boolean).join('\n');
+        chainText,
+      ].join('\n');
     });
 
     if (startLink) {
-      const body = [
+      const bodyLines: string[] = [
         '🎟 RAFFLE LIVE — ENTER HERE🎟',
         '',
         openRaffles.length > 0 ? `Open raffles: ${openRaffles.length}` : 'No open raffles right now.',
-        raffleBlocks.length > 0 ? '' : null,
-        ...raffleBlocks.flatMap((block, index) => index === raffleBlocks.length - 1 ? [block] : [block, '']),
-        '',
-        'Test your luck! Tap below to open chat.',
-      ].filter(Boolean).join('\n');
+      ];
+
+      if (raffleBlocks.length > 0) {
+        bodyLines.push('');
+        raffleBlocks.forEach((block, index) => {
+          bodyLines.push(block);
+          if (index !== raffleBlocks.length - 1) {
+            bodyLines.push('');
+          }
+        });
+      }
+
+      bodyLines.push('', 'Test your luck! Tap below to open chat.');
+      const body = bodyLines.join('\n');
 
       const enterCardVideoPath = this.getEnterCardVideoPath();
       if (enterCardVideoPath) {
