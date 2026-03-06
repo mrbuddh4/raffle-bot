@@ -76,6 +76,7 @@ export class RaffleBot {
   private readonly pendingByUser = new Map<number, PendingState>();
   private readonly pendingExecutionByUser = new Map<number, PendingExecution>();
   private readonly pendingPayrollByUser = new Map<number, PendingPayrollExecution>();
+  private readonly enterActionLockByKey = new Map<string, number>();
   private readonly userCardByUser = new Map<number, { chatId: number; messageId: number }>();
   private readonly adminCardByUser = new Map<number, { chatId: number; messageId: number }>();
 
@@ -404,6 +405,14 @@ export class RaffleBot {
     const userId = msg.from?.id;
     if (!userId) return;
 
+    const lockKey = `${userId}:${specificRaffleId ?? 'all'}`;
+    const now = Date.now();
+    const lastActionAt = this.enterActionLockByKey.get(lockKey);
+    if (lastActionAt && now - lastActionAt < 4000) {
+      return;
+    }
+    this.enterActionLockByKey.set(lockKey, now);
+
     const openRaffles = (await this.raffleService.getOpenRaffles()).filter((raffle) => raffle.status === 'open');
     if (openRaffles.length === 0) {
       await this.bot.sendMessage(msg.chat.id, 'No open raffle right now.');
@@ -415,6 +424,7 @@ export class RaffleBot {
       await this.bot.sendMessage(msg.chat.id, 'Please register first with /register.');
       return;
     }
+    const actorName = user.displayUsername;
 
     let eligibleRaffles = openRaffles.filter((raffle) => Boolean(this.getUserWalletForChain(user, raffle.chain)));
     if (eligibleRaffles.length === 0) {
@@ -461,19 +471,21 @@ export class RaffleBot {
       await this.bot.sendMessage(
         msg.chat.id,
         specificRaffleId != null
-          ? 'You are already entered in that raffle.'
-          : `You are already entered in all eligible open raffles (*${eligibleRaffles.length}*).`,
+          ? `*${actorName}* is already entered in this raffle.`
+          : `*${actorName}* is already entered in all eligible open raffles (*${eligibleRaffles.length}*).`,
         { parse_mode: 'Markdown' }
       );
       return;
     }
 
-    const summaryLines = [
-      `✅ Entered *${enteredTitles.length}* raffle(s):`,
-      ...enteredTitles.map((title) => `- ${title}`),
-    ];
+    const summaryLines = specificRaffleId != null
+      ? [`✅ *${actorName}* entered raffle: *${enteredTitles[0]}*`]
+      : [
+          `✅ *${actorName}* entered *${enteredTitles.length}* raffle(s):`,
+          ...enteredTitles.map((title) => `- ${title}`),
+        ];
 
-    if (alreadyEnteredTitles.length > 0) {
+    if (alreadyEnteredTitles.length > 0 && specificRaffleId == null) {
       summaryLines.push('', `Already entered in *${alreadyEnteredTitles.length}* raffle(s):`);
       summaryLines.push(...alreadyEnteredTitles.map((title) => `- ${title}`));
     }
