@@ -1474,7 +1474,7 @@ export class RaffleBot {
         userId,
         pending.chain === 'evm'
           ? 'Send the private key for NATIVE payouts on EVM.'
-          : 'Send the Solana secret key for NATIVE payouts (JSON array or base64).',
+          : 'Send the Solana secret key for NATIVE payouts. Accepted formats: JSON array, base58, or base64.',
         this.getAdminBackOptions(),
         query.message?.message_id
       );
@@ -2265,7 +2265,7 @@ export class RaffleBot {
         msg.chat.id,
         pending.chain === 'evm'
           ? 'Send the private key for NATIVE payouts on EVM.'
-          : 'Send the Solana secret key for NATIVE payouts (JSON array or base64).',
+          : 'Send the Solana secret key for NATIVE payouts. Accepted formats: JSON array, base58, or base64.',
         this.getAdminBackOptions()
       );
       return;
@@ -2297,7 +2297,7 @@ export class RaffleBot {
         msg.chat.id,
         pending.chain === 'evm'
           ? 'Send the private key for TOKEN payouts on EVM.'
-          : 'Send the Solana secret key for TOKEN payouts (JSON array or base64).',
+          : 'Send the Solana secret key for TOKEN payouts. Accepted formats: JSON array, base58, or base64.',
         this.getAdminBackOptions()
       );
       return;
@@ -2325,8 +2325,15 @@ export class RaffleBot {
           `✅ Saved payout signer.\nChain: *${pending.chain.toUpperCase()}*\nMode: *${pending.mode.toUpperCase()}*${pending.mode === 'token' && pending.tokenAddress ? `\nToken: \`${pending.tokenAddress}\`` : ''}\nWallet: \`${walletAddress}\``,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
-      } catch {
-        await this.bot.sendMessage(msg.chat.id, 'Invalid signer secret for selected chain/mode. Please send it again.', this.getAdminBackOptions());
+      } catch (err: any) {
+        await this.bot.sendMessage(
+          msg.chat.id,
+          `Invalid signer secret for selected chain/mode.\n\n` +
+            `Accepted formats for Solana: JSON array (from Phantom), base58 (44/88 chars), or base64 (64 bytes).\n` +
+            `Error: ${err?.message || err}\n\n` +
+            `Please send your Solana secret key again.`,
+          this.getAdminBackOptions()
+        );
       }
       return;
     }
