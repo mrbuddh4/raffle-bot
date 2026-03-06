@@ -7,6 +7,7 @@ export interface AdminPayoutWallet {
   adminTelegramUserId: number;
   chain: WalletChain;
   mode: PayoutMode;
+  tokenAddress: string | null;
   secret: string;
   walletAddress: string;
 }
@@ -18,27 +19,29 @@ export class AdminPayoutWalletService {
     adminTelegramUserId: number;
     chain: WalletChain;
     mode: PayoutMode;
+    tokenAddress?: string | null;
     secret: string;
     walletAddress: string;
   }): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO admin_payout_wallets (admin_telegram_user_id, chain, mode, secret, wallet_address)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO admin_payout_wallets (admin_telegram_user_id, chain, mode, token_address, secret, wallet_address)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (admin_telegram_user_id, chain, mode)
       DO UPDATE SET
+        token_address = EXCLUDED.token_address,
         secret = EXCLUDED.secret,
         wallet_address = EXCLUDED.wallet_address,
         updated_at = NOW()
       `,
-      [input.adminTelegramUserId, input.chain, input.mode, input.secret, input.walletAddress]
+      [input.adminTelegramUserId, input.chain, input.mode, input.tokenAddress ?? null, input.secret, input.walletAddress]
     );
   }
 
   async getWallet(adminTelegramUserId: number, chain: WalletChain, mode: PayoutMode): Promise<AdminPayoutWallet | null> {
     const result = await this.pool.query(
       `
-      SELECT admin_telegram_user_id, chain, mode, secret, wallet_address
+      SELECT admin_telegram_user_id, chain, mode, token_address, secret, wallet_address
       FROM admin_payout_wallets
       WHERE admin_telegram_user_id = $1
         AND chain = $2
@@ -58,7 +61,7 @@ export class AdminPayoutWalletService {
   async listWallets(adminTelegramUserId: number): Promise<AdminPayoutWallet[]> {
     const result = await this.pool.query(
       `
-      SELECT admin_telegram_user_id, chain, mode, secret, wallet_address
+      SELECT admin_telegram_user_id, chain, mode, token_address, secret, wallet_address
       FROM admin_payout_wallets
       WHERE admin_telegram_user_id = $1
       ORDER BY chain ASC, mode ASC
@@ -88,6 +91,7 @@ export class AdminPayoutWalletService {
       adminTelegramUserId: Number(row.admin_telegram_user_id),
       chain: row.chain,
       mode: row.mode,
+      tokenAddress: row.token_address ?? null,
       secret: row.secret,
       walletAddress: row.wallet_address,
     };

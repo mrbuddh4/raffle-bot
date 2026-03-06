@@ -34,7 +34,8 @@ type PendingState =
   | { type: 'payroll_group_update_upload'; groupId: number; chain: WalletChain; mode: 'native' | 'token'; tokenAddress?: string }
   | { type: 'set_payout_chain' }
   | { type: 'set_payout_mode'; chain: WalletChain }
-  | { type: 'set_payout_secret'; chain: WalletChain; mode: 'native' | 'token' }
+  | { type: 'set_payout_token_address'; chain: WalletChain; mode: 'token' }
+  | { type: 'set_payout_secret'; chain: WalletChain; mode: 'native' | 'token'; tokenAddress?: string }
   | { type: 'remove_payout_chain' }
   | { type: 'remove_payout_mode'; chain: WalletChain }
   | { type: 'mark_paid_rank' }
@@ -928,7 +929,10 @@ export class RaffleBot {
       return;
     }
 
-    const lines = wallets.map((wallet) => `${wallet.chain.toUpperCase()} ${wallet.mode.toUpperCase()} → \`${wallet.walletAddress}\``);
+    const lines = wallets.map((wallet) => {
+      const tokenLine = wallet.mode === 'token' && wallet.tokenAddress ? `\n   Token: \`${wallet.tokenAddress}\`` : '';
+      return `${wallet.chain.toUpperCase()} ${wallet.mode.toUpperCase()} → \`${wallet.walletAddress}\`${tokenLine}`;
+    });
     await this.renderAdminCard(
       chatId,
       adminId,
@@ -1449,13 +1453,27 @@ export class RaffleBot {
       }
 
       const mode: 'native' | 'token' = data.endsWith(':native') ? 'native' : 'token';
-      this.pendingByUser.set(userId, { type: 'set_payout_secret', chain: pending.chain, mode });
+      if (mode === 'token') {
+        this.pendingByUser.set(userId, { type: 'set_payout_token_address', chain: pending.chain, mode: 'token' });
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          pending.chain === 'evm'
+            ? 'Send the token contract address (CA) for token payouts on EVM (0x...).'
+            : 'Send the token mint address (CA) for token payouts on Solana.',
+          this.getAdminBackOptions(),
+          query.message?.message_id
+        );
+        return;
+      }
+
+      this.pendingByUser.set(userId, { type: 'set_payout_secret', chain: pending.chain, mode: 'native' });
       await this.renderAdminCard(
         chatId,
         userId,
         pending.chain === 'evm'
-          ? `Send the private key for ${mode.toUpperCase()} payouts on EVM.`
-          : `Send the Solana secret key for ${mode.toUpperCase()} payouts (JSON array or base64).`,
+          ? 'Send the private key for NATIVE payouts on EVM.'
+          : 'Send the Solana secret key for NATIVE payouts (JSON array or base64).',
         this.getAdminBackOptions(),
         query.message?.message_id
       );
@@ -2163,12 +2181,56 @@ export class RaffleBot {
         return;
       }
 
-      this.pendingByUser.set(userId, { type: 'set_payout_secret', chain: pending.chain, mode });
+      if (mode === 'token') {
+        this.pendingByUser.set(userId, { type: 'set_payout_token_address', chain: pending.chain, mode: 'token' });
+        await this.bot.sendMessage(
+          msg.chat.id,
+          pending.chain === 'evm'
+            ? 'Send the token contract address (CA) for token payouts on EVM (0x...).'
+            : 'Send the token mint address (CA) for token payouts on Solana.',
+          this.getAdminBackOptions()
+        );
+        return;
+      }
+
+      this.pendingByUser.set(userId, { type: 'set_payout_secret', chain: pending.chain, mode: 'native' });
       await this.bot.sendMessage(
         msg.chat.id,
         pending.chain === 'evm'
-          ? `Send the private key for ${mode.toUpperCase()} payouts on EVM.`
-          : `Send the Solana secret key for ${mode.toUpperCase()} payouts (JSON array or base64).`,
+          ? 'Send the private key for NATIVE payouts on EVM.'
+          : 'Send the Solana secret key for NATIVE payouts (JSON array or base64).',
+        this.getAdminBackOptions()
+      );
+      return;
+    }
+
+    if (pending.type === 'set_payout_token_address') {
+      if (!text) {
+        return;
+      }
+
+      const valid = isValidWalletForChain(text, pending.chain);
+      if (!valid) {
+        await this.bot.sendMessage(
+          msg.chat.id,
+          pending.chain === 'evm' ? 'Invalid token contract address.' : 'Invalid token mint address.',
+          this.getAdminBackOptions()
+        );
+        return;
+      }
+
+      const tokenAddress = normalizeWallet(text);
+      this.pendingByUser.set(userId, {
+        type: 'set_payout_secret',
+        chain: pending.chain,
+        mode: 'token',
+        tokenAddress,
+      });
+      await this.bot.sendMessage(
+        msg.chat.id,
+        pending.chain === 'evm'
+          ? 'Send the private key for TOKEN payouts on EVM.'
+          : 'Send the Solana secret key for TOKEN payouts (JSON array or base64).',
         this.getAdminBackOptions()
       );
       return;
@@ -2185,6 +2247,7 @@ export class RaffleBot {
           adminTelegramUserId: userId,
           chain: pending.chain,
           mode: pending.mode,
+          tokenAddress: pending.mode === 'token' ? pending.tokenAddress ?? null : null,
           secret: text,
           walletAddress: pending.chain === 'evm' ? walletAddress.toLowerCase() : walletAddress,
         });
@@ -2192,7 +2255,7 @@ export class RaffleBot {
         this.pendingByUser.delete(userId);
         await this.bot.sendMessage(
           msg.chat.id,
-          `✅ Saved payout signer.\nChain: *${pending.chain.toUpperCase()}*\nMode: *${pending.mode.toUpperCase()}*\nWallet: \`${walletAddress}\``,
+          `✅ Saved payout signer.\nChain: *${pending.chain.toUpperCase()}*\nMode: *${pending.mode.toUpperCase()}*${pending.mode === 'token' && pending.tokenAddress ? `\nToken: \`${pending.tokenAddress}\`` : ''}\nWallet: \`${walletAddress}\``,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
       } catch {
