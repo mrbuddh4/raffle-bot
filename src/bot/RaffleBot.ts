@@ -297,6 +297,11 @@ export class RaffleBot {
       return;
     }
 
+    if (msg.chat.type !== 'private') {
+      await this.sendEnterViaDmPrompt(msg.chat.id);
+      return;
+    }
+
     await this.sendEnterPicker(msg.chat.id, userId, msg.message_id, msg.chat.type === 'private');
   }
 
@@ -932,16 +937,31 @@ export class RaffleBot {
     }
 
     if (data === 'user:enter') {
-      await this.sendEnterPicker(chatId, userId, query.message?.message_id, query.message?.chat.type === 'private');
+      if (query.message?.chat.type !== 'private') {
+        await this.sendEnterViaDmPrompt(chatId);
+        return;
+      }
+
+      await this.sendEnterPicker(chatId, userId, query.message?.message_id, true);
       return;
     }
 
     if (data === 'user:enter_all') {
+      if (query.message?.chat.type !== 'private') {
+        await this.sendEnterViaDmPrompt(chatId);
+        return;
+      }
+
       await this.enterActiveRaffle({ ...query.message!, from: query.from } as Message);
       return;
     }
 
     if (data.startsWith('user:enter_raffle:')) {
+      if (query.message?.chat.type !== 'private') {
+        await this.sendEnterViaDmPrompt(chatId);
+        return;
+      }
+
       const raffleId = Number(data.split(':')[2]);
       if (!Number.isInteger(raffleId)) {
         await this.bot.sendMessage(chatId, 'Invalid raffle selection.');
@@ -2709,6 +2729,24 @@ export class RaffleBot {
     }
 
     return null;
+  }
+
+  private async sendEnterViaDmPrompt(chatId: number): Promise<void> {
+    const registerLink = this.getRegisterLink();
+    if (registerLink) {
+      await this.bot.sendMessage(
+        chatId,
+        'To enter raffles, please continue in DM with me. Tap below to open chat and use /enter.',
+        {
+          reply_markup: {
+            inline_keyboard: [[{ text: '📩 Open DM', url: registerLink }]],
+          },
+        }
+      );
+      return;
+    }
+
+    await this.bot.sendMessage(chatId, 'To enter raffles, please DM me first and run /enter there.');
   }
 
   private async sendPayoutWallets(chatId: number, adminId: number, raffleId?: number): Promise<void> {
