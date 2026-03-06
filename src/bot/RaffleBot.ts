@@ -41,6 +41,7 @@ type PendingState =
   | { type: 'mark_paid_rank' }
   | { type: 'mark_paid_tx'; raffleId: number; rank: number }
   | { type: 'execute_payout_mode'; raffleId: number; chain: WalletChain }
+  | { type: 'execute_payout_token_choice'; raffleId: number; chain: WalletChain; tokenAddress: string }
   | { type: 'execute_payout_token_address'; raffleId: number; chain: WalletChain }
   | { type: 'execute_payout_amount'; raffleId: number; chain: WalletChain; mode: 'native' | 'token'; tokenAddress?: string }
   | { type: 'execute_payout_confirm' };
@@ -1604,16 +1605,63 @@ export class RaffleBot {
       const signer = await this.adminPayoutWalletService.getWallet(userId, pending.chain, 'token');
       if (signer?.tokenAddress) {
         this.pendingByUser.set(userId, {
-          type: 'execute_payout_amount',
+          type: 'execute_payout_token_choice',
           raffleId: pending.raffleId,
           chain: pending.chain,
-          mode: 'token',
           tokenAddress: signer.tokenAddress,
         });
         await this.renderAdminCard(
           chatId,
           userId,
-          `Using saved token CA: \`${signer.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
+          `Saved token CA found: \`${signer.tokenAddress}\`\n\nUse saved CA or enter a new one?`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '✅ Use Saved CA', callback_data: 'admin:execute_payout_token_choice:saved' },
+                  { text: '✏️ Enter New CA', callback_data: 'admin:execute_payout_token_choice:new' },
+                ],
+                [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
+              ],
+            },
+          },
+          query.message?.message_id
+        );
+        return;
+      }
+
+      this.pendingByUser.set(userId, { type: 'execute_payout_token_address', raffleId: pending.raffleId, chain: pending.chain });
+      await this.renderAdminCard(
+        chatId,
+        userId,
+        pending.chain === 'evm'
+          ? 'What token do you want to drop? Send ERC-20 token contract address (0x...).'
+          : 'What token do you want to drop? Send SPL token mint address.',
+        this.getAdminBackOptions(),
+        query.message?.message_id
+      );
+      return;
+    }
+
+    if (data === 'admin:execute_payout_token_choice:saved' || data === 'admin:execute_payout_token_choice:new') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'execute_payout_token_choice') {
+        return;
+      }
+
+      if (data.endsWith(':saved')) {
+        this.pendingByUser.set(userId, {
+          type: 'execute_payout_amount',
+          raffleId: pending.raffleId,
+          chain: pending.chain,
+          mode: 'token',
+          tokenAddress: pending.tokenAddress,
+        });
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          `Using saved token CA: \`${pending.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' }),
           query.message?.message_id
         );
@@ -2928,16 +2976,15 @@ export class RaffleBot {
       const signer = await this.adminPayoutWalletService.getWallet(userId, pending.chain, 'token');
       if (signer?.tokenAddress) {
         this.pendingByUser.set(userId, {
-          type: 'execute_payout_amount',
+          type: 'execute_payout_token_choice',
           raffleId: pending.raffleId,
           chain: pending.chain,
-          mode: 'token',
           tokenAddress: signer.tokenAddress,
         });
         await this.renderAdminCard(
           msg.chat.id,
           userId,
-          `Using saved token CA: \`${signer.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
+          `Saved token CA found: \`${signer.tokenAddress}\`\n\nUse saved CA or enter a new one?\nType *SAVED* or *NEW*.`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
         return;
@@ -2951,6 +2998,48 @@ export class RaffleBot {
           ? 'Send ERC-20 token contract address (0x...).'
           : 'Send SPL token mint address.',
         this.getAdminBackOptions()
+      );
+      return;
+    }
+
+    if (pending.type === 'execute_payout_token_choice') {
+      const decision = text.trim().toLowerCase();
+
+      if (decision === 'saved') {
+        this.pendingByUser.set(userId, {
+          type: 'execute_payout_amount',
+          raffleId: pending.raffleId,
+          chain: pending.chain,
+          mode: 'token',
+          tokenAddress: pending.tokenAddress,
+        });
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          `Using saved token CA: \`${pending.tokenAddress}\`\n\nHow much total token amount should be distributed across all winners? (human units, example: 500).`,
+          this.getAdminBackOptions({ parse_mode: 'Markdown' })
+        );
+        return;
+      }
+
+      if (decision === 'new') {
+        this.pendingByUser.set(userId, { type: 'execute_payout_token_address', raffleId: pending.raffleId, chain: pending.chain });
+        await this.renderAdminCard(
+          msg.chat.id,
+          userId,
+          pending.chain === 'evm'
+            ? 'Send ERC-20 token contract address (0x...).'
+            : 'Send SPL token mint address.',
+          this.getAdminBackOptions()
+        );
+        return;
+      }
+
+      await this.renderAdminCard(
+        msg.chat.id,
+        userId,
+        'Type *SAVED* to use stored token CA, or *NEW* to enter a different one.',
+        this.getAdminBackOptions({ parse_mode: 'Markdown' })
       );
       return;
     }
