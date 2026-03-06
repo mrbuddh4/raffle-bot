@@ -82,6 +82,7 @@ export class RaffleBot {
   private readonly pendingExecutionByUser = new Map<number, PendingExecution>();
   private readonly pendingPayrollByUser = new Map<number, PendingPayrollExecution>();
   private readonly enterActionLockByKey = new Map<string, number>();
+  private readonly recentSuccessfulEnterByKey = new Map<string, number>();
   private readonly lastEnterGroupByUser = new Map<number, { chatId: number; at: number }>();
   private readonly userCardByUser = new Map<number, { chatId: number; messageId: number }>();
   private readonly adminCardByUser = new Map<number, { chatId: number; messageId: number }>();
@@ -475,7 +476,7 @@ export class RaffleBot {
     const lockKey = `${userId}:${specificRaffleId ?? 'all'}`;
     const now = Date.now();
     const lastActionAt = this.enterActionLockByKey.get(lockKey);
-    if (lastActionAt && now - lastActionAt < 4000) {
+    if (lastActionAt && now - lastActionAt < 8000) {
       return;
     }
     this.enterActionLockByKey.set(lockKey, now);
@@ -541,6 +542,11 @@ export class RaffleBot {
     }
 
     if (enteredTitles.length === 0) {
+      const recentSuccessAt = this.recentSuccessfulEnterByKey.get(lockKey);
+      if (recentSuccessAt && Date.now() - recentSuccessAt < 30000) {
+        return;
+      }
+
       await this.bot.sendMessage(
         msg.chat.id,
         specificRaffleId != null
@@ -573,6 +579,8 @@ export class RaffleBot {
       summaryLines.join('\n'),
       { parse_mode: 'Markdown' }
     );
+
+    this.recentSuccessfulEnterByKey.set(lockKey, Date.now());
 
     if (msg.chat.type === 'private') {
       const sourceGroupChatId = this.consumeRecentEnterGroup(user.id);
