@@ -224,7 +224,8 @@ export class PayoutService {
   }
 
   private parseSecretKey(secretRaw: string): Uint8Array {
-    const trimmed = secretRaw.trim();
+    // Aggressively strip all whitespace including newlines, tabs, etc.
+    const trimmed = secretRaw.replace(/\s+/g, '').trim();
 
     if (trimmed.startsWith('[')) {
       try {
@@ -241,11 +242,16 @@ export class PayoutService {
     try {
       const bytes = Buffer.from(trimmed, 'base64');
       if (bytes.length !== 64) {
-        throw new Error(`Solana secret key must be 64 bytes when base64-encoded, got ${bytes.length} bytes`);
+        // If 88 bytes, it might be a full keypair (public + secret)
+        if (bytes.length === 88) {
+          throw new Error(`Looks like a full keypair export (88 bytes). Please use only the secret key portion (64 bytes).`);
+        }
+        throw new Error(`Solana secret key must be 64 bytes, got ${bytes.length} bytes`);
       }
       return Uint8Array.from(bytes);
     } catch (error: any) {
-      throw new Error(`Invalid base64 format or invalid key length: ${error?.message || 'decoding failed'}`);
+      const msg = typeof error?.message === 'string' ? error.message : 'decoding failed';
+      throw new Error(`Invalid base64 format or key length: ${msg}`);
     }
   }
 }
