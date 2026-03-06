@@ -407,9 +407,8 @@ export class RaffleBot {
     const registerLink = this.getRegisterLink();
     const fundingLink = process.env.FUNDING_LINK?.trim();
     const lines = openRaffles.map((raffle) => {
-      const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
+      const timeText = this.formatTimeRemaining(raffle.endsAt);
       const utcEndText = raffle.endsAt ? raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
-      const timeText = hoursLeft != null ? `~${hoursLeft}h left` : null;
       const enteredText = ` · entered: *${entryCounts.get(raffle.id) ?? 0}*`;
       const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
         ? ` · reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`
@@ -619,9 +618,8 @@ export class RaffleBot {
     );
 
     const raffleLines = eligibleRaffles.map((raffle) => {
-      const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
+      const timeText = this.formatTimeRemaining(raffle.endsAt);
       const utcEndText = raffle.endsAt ? raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC') : null;
-      const timeText = hoursLeft != null ? `~${hoursLeft}h left` : null;
       const enteredText = ` · entered: *${entryCounts.get(raffle.id) ?? 0}*`;
       const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
         ? ` · reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`
@@ -2792,9 +2790,8 @@ export class RaffleBot {
     const fundingLink = process.env.FUNDING_LINK?.trim();
     const artworkUrl = process.env.RAFFLE_ARTWORK_URL?.trim();
     const goLiveVideoPath = this.getEnterCardVideoPath();
-    const hoursText = raffle.endsAt
-      ? `Ends in ~*${Math.max(1, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000))}h*`
-      : null;
+    const countdownText = this.formatTimeRemaining(raffle.endsAt, { markdown: true });
+    const hoursText = countdownText ? `Ends in ${countdownText}` : null;
     const utcEndText = raffle.endsAt
       ? `Ends at: *${raffle.endsAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC')}*`
       : null;
@@ -2899,13 +2896,13 @@ export class RaffleBot {
       await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
     );
     const raffleBlocks = openRaffles.map((raffle) => {
-      const minutesLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 60000)) : null;
+      const timeLeft = this.formatTimeRemaining(raffle.endsAt);
       return [
         `• ${raffle.title}`,
         '',
         `Winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}`,
         `Entered: ${entryCounts.get(raffle.id) ?? 0}`,
-        minutesLeft != null ? `~${minutesLeft}m left` : null,
+        timeLeft,
         '',
         `Chain: ${raffle.chain.toUpperCase()}`,
       ].filter(Boolean).join('\n');
@@ -2971,6 +2968,27 @@ export class RaffleBot {
     }
 
     return null;
+  }
+
+  private formatTimeRemaining(endsAt: Date | null, options?: { markdown?: boolean }): string | null {
+    if (!endsAt) {
+      return null;
+    }
+
+    const diffMs = endsAt.getTime() - Date.now();
+    const markdown = options?.markdown === true;
+
+    if (diffMs <= 0) {
+      return markdown ? '~*0m* left' : '~0m left';
+    }
+
+    if (diffMs < 3600000) {
+      const minutesLeft = Math.max(1, Math.ceil(diffMs / 60000));
+      return markdown ? `~*${minutesLeft}m* left` : `~${minutesLeft}m left`;
+    }
+
+    const hoursLeft = Math.max(1, Math.ceil(diffMs / 3600000));
+    return markdown ? `~*${hoursLeft}h* left` : `~${hoursLeft}h left`;
   }
 
   private rememberEnterGroup(userId: number, chatId: number): void {
