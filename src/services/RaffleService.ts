@@ -326,7 +326,13 @@ export class RaffleService {
     const result = await this.pool.query(
       `
       INSERT INTO raffle_entries (raffle_id, user_id, wallet_chain, wallet_address)
-      VALUES ($1, $2, $3, $4)
+      SELECT $1, $2, $3, $4
+      WHERE EXISTS (
+        SELECT 1
+        FROM raffles
+        WHERE id = $1
+          AND status = 'open'
+      )
       ON CONFLICT (raffle_id, user_id) DO NOTHING
       RETURNING id
       `,

@@ -513,6 +513,7 @@ export class RaffleBot {
 
     const enteredTitles: string[] = [];
     const alreadyEnteredTitles: string[] = [];
+    const justClosedTitles: string[] = [];
 
     for (const raffle of eligibleRaffles) {
       const walletAddress = this.getUserWalletForChain(user, raffle.chain);
@@ -528,7 +529,12 @@ export class RaffleBot {
       if (inserted) {
         enteredTitles.push(raffle.title);
       } else {
-        alreadyEnteredTitles.push(raffle.title);
+        const latestRaffle = await this.raffleService.getRaffleById(raffle.id);
+        if (latestRaffle?.status !== 'open') {
+          justClosedTitles.push(raffle.title);
+        } else {
+          alreadyEnteredTitles.push(raffle.title);
+        }
       }
 
       await this.maybeAutoDrawRaffle(raffle.id);
@@ -555,6 +561,11 @@ export class RaffleBot {
     if (alreadyEnteredTitles.length > 0 && specificRaffleId == null) {
       summaryLines.push('', `Already entered in *${alreadyEnteredTitles.length}* raffle(s):`);
       summaryLines.push(...alreadyEnteredTitles.map((title) => `- ${title}`));
+    }
+
+    if (justClosedTitles.length > 0) {
+      summaryLines.push('', `Just closed before your entry was saved (*${justClosedTitles.length}*):`);
+      summaryLines.push(...justClosedTitles.map((title) => `- ${title}`));
     }
 
     await this.bot.sendMessage(
