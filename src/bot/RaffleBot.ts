@@ -2867,23 +2867,24 @@ export class RaffleBot {
     const entryCounts = new Map<number, number>(
       await Promise.all(openRaffles.map(async (raffle) => [raffle.id, await this.raffleService.getEntryCount(raffle.id)] as const))
     );
-    const featuredRaffle = openRaffles[0] ?? null;
-    const hoursLeft = featuredRaffle?.endsAt ? Math.max(0, Math.ceil((featuredRaffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
-    const extraRaffles = Math.max(0, openRaffles.length - 1);
+    const raffleBlocks = openRaffles.map((raffle) => {
+      const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
+      return [
+        `• *${raffle.title}*`,
+        `Winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
+        `Entered: *${entryCounts.get(raffle.id) ?? 0}*`,
+        hoursLeft != null ? `~*${hoursLeft}h* left` : null,
+        `Chain: *${raffle.chain.toUpperCase()}*`,
+      ].filter(Boolean).join('\n');
+    });
 
     if (startLink) {
       const body = [
         '🎟 *RAFFLE LIVE — ENTER HERE* 🎟',
         '',
         openRaffles.length > 0 ? `Open raffles: *${openRaffles.length}*` : 'No open raffles right now.',
-        featuredRaffle ? `• *${featuredRaffle.title}*` : null,
-        '',
-        featuredRaffle ? `Winners: *${featuredRaffle.allEntrantsWin ? 'all entrants' : featuredRaffle.winnerCount}*` : null,
-        featuredRaffle ? `Entered: *${entryCounts.get(featuredRaffle.id) ?? 0}*` : null,
-        hoursLeft != null ? `~*${hoursLeft}h* left` : null,
-        '',
-        featuredRaffle ? `Chain: *${featuredRaffle.chain.toUpperCase()}*` : null,
-        extraRaffles > 0 ? `+ *${extraRaffles}* more open raffle(s)` : null,
+        raffleBlocks.length > 0 ? '' : null,
+        ...raffleBlocks.flatMap((block, index) => index === raffleBlocks.length - 1 ? [block] : [block, '']),
         '',
         'Test your luck! Tap below to open chat.',
       ].filter(Boolean).join('\n');
