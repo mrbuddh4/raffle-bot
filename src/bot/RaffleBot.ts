@@ -2948,7 +2948,7 @@ export class RaffleBot {
       : null;
 
     const captionLines: string[] = [
-      `🚨 *RAFFLE IS LIVE*`,
+      `🚨 *RAFFLE IS LIVE* 🚨`,
       '',
       `*${raffle.title}* [${raffle.chain.toUpperCase()}]`,
       '',
