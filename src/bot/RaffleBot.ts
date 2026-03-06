@@ -2870,7 +2870,7 @@ export class RaffleBot {
     const raffleBlocks = openRaffles.map((raffle) => {
       const hoursLeft = raffle.endsAt ? Math.max(0, Math.ceil((raffle.endsAt.getTime() - Date.now()) / 3600000)) : null;
       return [
-        `• *${raffle.title}*`,
+        `• Title: *${raffle.title}*`,
         `Winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
         `Entered: *${entryCounts.get(raffle.id) ?? 0}*`,
         hoursLeft != null ? `~*${hoursLeft}h* left` : null,
