@@ -582,15 +582,15 @@ export class RaffleBot {
     this.recentSuccessfulEnterByKey.set(lockKey, Date.now());
 
     if (msg.chat.type === 'private') {
-      const groupLines = enteredTitles.map((title) => `✅ *${actorName}* entered raffle: *${title}*`);
+      const groupLines = enteredTitles.map((title) => `✅ ${actorName} entered raffle: ${title}`);
       const sourceGroupChatId = this.consumeRecentEnterGroup(user.id);
       if (sourceGroupChatId != null) {
-        await this.bot.sendMessage(sourceGroupChatId, groupLines.join('\n'), { parse_mode: 'Markdown' });
+        await this.bot.sendMessage(sourceGroupChatId, groupLines.join('\n'));
       } else {
         const fallbackChatIds = await this.getAlertTargetChatIds(null);
         await Promise.all(fallbackChatIds.map(async (targetChatId) => {
           try {
-            await this.bot.sendMessage(targetChatId, groupLines.join('\n'), { parse_mode: 'Markdown' });
+            await this.bot.sendMessage(targetChatId, groupLines.join('\n'));
           } catch (error: any) {
             await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
           }
