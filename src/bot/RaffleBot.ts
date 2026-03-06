@@ -582,10 +582,19 @@ export class RaffleBot {
     this.recentSuccessfulEnterByKey.set(lockKey, Date.now());
 
     if (msg.chat.type === 'private') {
+      const groupLines = enteredTitles.map((title) => `✅ *${actorName}* entered raffle: *${title}*`);
       const sourceGroupChatId = this.consumeRecentEnterGroup(user.id);
       if (sourceGroupChatId != null) {
-        const groupLines = enteredTitles.map((title) => `✅ *${actorName}* entered raffle: *${title}*`);
         await this.bot.sendMessage(sourceGroupChatId, groupLines.join('\n'), { parse_mode: 'Markdown' });
+      } else {
+        const fallbackChatIds = await this.getAlertTargetChatIds(null);
+        await Promise.all(fallbackChatIds.map(async (targetChatId) => {
+          try {
+            await this.bot.sendMessage(targetChatId, groupLines.join('\n'), { parse_mode: 'Markdown' });
+          } catch (error: any) {
+            await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
+          }
+        }));
       }
     }
   }
@@ -1918,6 +1927,8 @@ export class RaffleBot {
   }
 
   private async handlePendingMessage(msg: Message): Promise<void> {
+    await this.rememberGroupChat(msg.chat);
+
     const userId = msg.from?.id;
     const text = msg.text?.trim();
     if (!userId) return;
