@@ -3006,13 +3006,14 @@ export class RaffleBot {
     }
   }
 
-  private async announceRaffleGoLive(raffle: { title: string; chain: WalletChain; winnerCount: number; allEntrantsWin: boolean; endsAt: Date | null; announcementChatId: number | null; rewardToken: string | null; rewardTotalAmount: number | null }): Promise<void> {
+  private async announceRaffleGoLive(raffle: { id: number; title: string; chain: WalletChain; winnerCount: number; allEntrantsWin: boolean; endsAt: Date | null; announcementChatId: number | null; rewardToken: string | null; rewardTotalAmount: number | null }): Promise<void> {
     const registerLink = this.getRegisterLink();
     const enterLink = this.getBotStartLink('enter') ?? registerLink;
     const registerStartLink = this.getBotStartLink('register') ?? registerLink;
     const fundingLink = process.env.FUNDING_LINK?.trim();
     const artworkUrl = process.env.RAFFLE_ARTWORK_URL?.trim();
     const goLiveVideoPath = this.getEnterCardVideoPath();
+    const entryCount = await this.raffleService.getEntryCount(raffle.id);
     const countdownText = this.formatTimeRemaining(raffle.endsAt, { markdown: true });
     const hoursText = countdownText ? `Ends in ${countdownText}` : null;
     const utcEndText = raffle.endsAt
@@ -3025,6 +3026,7 @@ export class RaffleBot {
       `*${raffle.title}* [${raffle.chain.toUpperCase()}]`,
       '',
       `Winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
+      `Entries: *${entryCount}*`,
     ];
 
     if (raffle.rewardToken && raffle.rewardTotalAmount != null) {
