@@ -530,6 +530,63 @@ export class RaffleBot {
     );
   }
 
+  private async sendMyWinnings(chatId: number, telegramUserId: number, preferredMessageId?: number): Promise<void> {
+    const user = await this.userService.getByTelegramUserId(telegramUserId);
+    if (!user) {
+      await this.bot.sendMessage(chatId, 'Please register first with /register.');
+      return;
+    }
+
+    const wonRaffles = await this.raffleService.getRafflesWonByUser(user.id, 20);
+    if (wonRaffles.length === 0) {
+      await this.renderUserCard(
+        chatId,
+        telegramUserId,
+        '🏆 *My Winnings*\n\nYou have not won any raffles yet.',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[{ text: '🏠 Home', callback_data: 'user:home' }]],
+          },
+        },
+        preferredMessageId
+      );
+      return;
+    }
+
+    const lines = wonRaffles.map((raffle) => {
+      const wonAmount = raffle.rewardTotalAmount != null && raffle.winnerTotal > 0
+        ? raffle.rewardTotalAmount / raffle.winnerTotal
+        : null;
+      const wonAmountText = wonAmount != null && raffle.rewardToken
+        ? `${Number(wonAmount.toFixed(8)).toString()} ${raffle.rewardToken}`
+        : raffle.rewardToken
+          ? `N/A ${raffle.rewardToken}`
+          : 'N/A';
+      const status = raffle.status.toUpperCase();
+      const payoutText = raffle.payoutStatus.toUpperCase();
+      return [
+        `• *${raffle.title}*`,
+        `${raffle.chain.toUpperCase()} · status: *${status}* · rank: *#${raffle.rank}*`,
+        `Won: *${wonAmountText}*`,
+        `Payout: *${payoutText}*`,
+      ].join('\n');
+    });
+
+    await this.renderUserCard(
+      chatId,
+      telegramUserId,
+      ['🏆 *My Winnings*', '', ...lines].join('\n\n'),
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '🏠 Home', callback_data: 'user:home' }]],
+        },
+      },
+      preferredMessageId
+    );
+  }
+
   private async enterActiveRaffle(msg: Message, specificRaffleId?: number): Promise<void> {
     const userId = msg.from?.id;
     if (!userId) return;
@@ -1069,6 +1126,11 @@ export class RaffleBot {
 
     if (data === 'user:my_raffles') {
       await this.sendMyEnteredRaffles(chatId, userId, query.message?.message_id);
+      return;
+    }
+
+    if (data === 'user:my_winnings') {
+      await this.sendMyWinnings(chatId, userId, query.message?.message_id);
       return;
     }
 
@@ -3709,7 +3771,10 @@ export class RaffleBot {
     ];
 
     if (hasUserProfile) {
-      keyboard.push([{ text: '📋 My Raffles', callback_data: 'user:my_raffles' }]);
+      keyboard.push([
+        { text: '📋 My Raffles', callback_data: 'user:my_raffles' },
+        { text: '🏆 My Winnings', callback_data: 'user:my_winnings' },
+      ]);
     }
 
     if (this.isAdmin(userId)) {

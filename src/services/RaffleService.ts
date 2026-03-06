@@ -24,6 +24,20 @@ export interface WinnerResult {
   userId: number;
 }
 
+export interface WonRaffleSummary {
+  id: number;
+  title: string;
+  status: 'created' | 'open' | 'drawing' | 'completed';
+  chain: WalletChain;
+  rank: number;
+  rewardToken: string | null;
+  rewardTotalAmount: number | null;
+  winnerTotal: number;
+  payoutStatus: 'pending' | 'paid';
+  payoutTxHash: string | null;
+  completedAt: Date | null;
+}
+
 export interface EnteredRaffleSummary {
   id: number;
   title: string;
@@ -218,6 +232,49 @@ export class RaffleService {
     );
 
     return result.rows.map((row) => this.mapRaffle(row));
+  }
+
+  async getRafflesWonByUser(userId: number, limit = 20): Promise<WonRaffleSummary[]> {
+    const result = await this.pool.query(
+      `
+      SELECT
+        r.id,
+        r.title,
+        r.status,
+        r.chain,
+        r.reward_token,
+        r.reward_total_amount,
+        r.completed_at,
+        rw.rank,
+        rw.payout_status,
+        rw.payout_tx_hash,
+        (
+          SELECT COUNT(*)::int
+          FROM raffle_winners rw2
+          WHERE rw2.raffle_id = r.id
+        ) AS winner_total
+      FROM raffle_winners rw
+      INNER JOIN raffles r ON r.id = rw.raffle_id
+      WHERE rw.user_id = $1
+      ORDER BY COALESCE(r.completed_at, r.created_at) DESC, rw.rank ASC
+      LIMIT $2
+      `,
+      [userId, limit]
+    );
+
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      title: row.title,
+      status: row.status,
+      chain: row.chain,
+      rank: Number(row.rank),
+      rewardToken: row.reward_token ?? null,
+      rewardTotalAmount: row.reward_total_amount != null ? Number(row.reward_total_amount) : null,
+      winnerTotal: Number(row.winner_total),
+      payoutStatus: row.payout_status,
+      payoutTxHash: row.payout_tx_hash ?? null,
+      completedAt: row.completed_at ? new Date(row.completed_at) : null,
+    }));
   }
 
   async getRafflesEnteredByUser(userId: number, limit = 20): Promise<EnteredRaffleSummary[]> {
