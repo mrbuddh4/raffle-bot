@@ -256,17 +256,6 @@ export class PayoutService {
     if (!senderInfo) {
       throw new Error('Payer does not have an associated token account for the provided mint.');
     }
-    
-    // Verify token account owner
-    const tokenAccountData = senderInfo.data.length > 32 ? senderInfo.data.slice(32, 64) : null;
-    if (tokenAccountData) {
-      const ownerFromAccount = new PublicKey(tokenAccountData);
-      console.log(`[PayoutService.payoutSolanaToken] 🔐 Token account owner: ${ownerFromAccount.toBase58()}`);
-      console.log(`[PayoutService.payoutSolanaToken] 💳 Payer public key:    ${payer.publicKey.toBase58()}`);
-      if (!ownerFromAccount.equals(payer.publicKey)) {
-        console.error(`❌ MISMATCH: Token account owner is NOT our payer!`);
-      }
-    }
 
     const results: PayoutResult[] = [];
 
