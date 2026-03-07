@@ -130,7 +130,19 @@ export class PayoutService {
     }
 
     const secret = this.parseSecretKey(secretRaw);
-    const payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
+    
+    let payer: Keypair;
+    try {
+      payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
+    } catch (err1: any) {
+      console.log(`[PayoutService] First attempt failed, trying alternate method...`);
+      try {
+        payer = secret.length === 32 ? Keypair.fromSecretKey(secret) : Keypair.fromSeed(secret.slice(0, 32));
+      } catch (err2: any) {
+        throw new Error(`Failed both keypair methods: ${err1?.message}, ${err2?.message}`);
+      }
+    }
+    
     const connection = new Connection(rpcUrl, 'confirmed');
     const lamports = Math.round(amountPerWinner * LAMPORTS_PER_SOL);
 
@@ -197,7 +209,19 @@ export class PayoutService {
     }
 
     const secret = this.parseSecretKey(secretRaw);
-    const payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
+    
+    let payer: Keypair;
+    try {
+      payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
+    } catch (err1: any) {
+      console.log(`[PayoutService] First attempt failed, trying alternate method...`);
+      try {
+        payer = secret.length === 32 ? Keypair.fromSecretKey(secret) : Keypair.fromSeed(secret.slice(0, 32));
+      } catch (err2: any) {
+        throw new Error(`Failed both keypair methods: ${err1?.message}, ${err2?.message}`);
+      }
+    }
+    
     const connection = new Connection(rpcUrl, 'confirmed');
 
     const mintPubkey = new PublicKey(tokenMintAddress);
