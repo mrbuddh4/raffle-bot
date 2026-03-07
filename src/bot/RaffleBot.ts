@@ -1724,10 +1724,12 @@ export class RaffleBot {
       } catch (error: any) {
         this.pendingExecutionByUser.delete(userId);
         this.pendingByUser.delete(userId);
+        console.error(`[RaffleBot] ❌ Payout error:`, error);
+        const errorMsg = error?.message || error?.toString?.() || 'unknown error';
         await this.renderAdminCard(
           chatId,
           userId,
-          `❌ Payout failed: ${error?.message || 'unknown error'}`,
+          `❌ Payout failed: ${errorMsg}`,
           this.getAdminBackOptions(),
           query.message?.message_id
         );
@@ -2953,7 +2955,9 @@ export class RaffleBot {
       } catch (error: any) {
         this.pendingExecutionByUser.delete(userId);
         this.pendingByUser.delete(userId);
-        await this.renderAdminCard(msg.chat.id, userId, `❌ Payout failed: ${error?.message || 'unknown error'}`, this.getAdminBackOptions());
+        console.error(`[RaffleBot] ❌ Payout error:`, error);
+        const errorMsg = error?.message || error?.toString?.() || 'unknown error';
+        await this.renderAdminCard(msg.chat.id, userId, `❌ Payout failed: ${errorMsg}`, this.getAdminBackOptions());
       }
 
       return;
@@ -3154,9 +3158,11 @@ export class RaffleBot {
         payoutByRank.set(result.rank, { txHash: result.txHash });
       }
     } catch (error: any) {
+      console.error(`[RaffleBot] ❌ Auto payout error:`, error);
+      const errorMsg = error?.message || error?.toString?.() || 'unknown error';
       await this.bot.sendMessage(
         raffle.createdBy,
-        `⚠️ Auto payout failed for *${raffle.title}*: ${error?.message || 'unknown error'}`,
+        `⚠️ Auto payout failed for *${raffle.title}*: ${errorMsg}`,
         { parse_mode: 'Markdown' }
       );
     }
