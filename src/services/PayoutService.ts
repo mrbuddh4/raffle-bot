@@ -215,16 +215,32 @@ export class PayoutService {
     }
 
     const secret = this.parseSecretKey(secretRaw);
+    console.log(`[PayoutService.payoutSolanaToken] Decoded secret: ${secret.length} bytes`);
     
     let payer: Keypair;
+    let method = '';
     try {
-      payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
+      if (secret.length === 32) {
+        payer = Keypair.fromSeed(secret);
+        method = 'fromSeed(32)';
+      } else {
+        payer = Keypair.fromSecretKey(secret);
+        method = 'fromSecretKey(64)';
+      }
+      console.log(`[PayoutService.payoutSolanaToken] ✅ Keypair derived via ${method}: ${payer.publicKey.toBase58()}`);
     } catch (err1: any) {
-      console.log(`[PayoutService] First attempt failed, trying alternate method...`);
+      console.log(`[PayoutService.payoutSolanaToken] First attempt (${method}) failed: ${err1?.message}, trying alternate...`);
       try {
-        payer = secret.length === 32 ? Keypair.fromSecretKey(secret) : Keypair.fromSeed(secret.slice(0, 32));
+        if (secret.length === 32) {
+          payer = Keypair.fromSecretKey(secret);
+          method = 'fromSecretKey(32)';
+        } else {
+          payer = Keypair.fromSeed(secret.slice(0, 32));
+          method = 'fromSeed(slice(0,32))';
+        }
+        console.log(`[PayoutService.payoutSolanaToken] ✅ Keypair derived via ${method}: ${payer.publicKey.toBase58()}`);
       } catch (err2: any) {
-        throw new Error(`Failed both keypair methods: ${err1?.message}, ${err2?.message}`);
+        throw new Error(`Failed all keypair methods: ${err1?.message}, ${err2?.message}`);
       }
     }
     
@@ -235,9 +251,21 @@ export class PayoutService {
     const amountUnits = BigInt(Math.round(amountPerWinner * Math.pow(10, mintInfo.decimals)));
 
     const senderTokenAccount = await getAssociatedTokenAddress(mintPubkey, payer.publicKey);
+    console.log(`[PayoutService.payoutSolanaToken] 📊 Derived payer token account: ${senderTokenAccount.toBase58()}`);
     const senderInfo = await connection.getAccountInfo(senderTokenAccount);
     if (!senderInfo) {
       throw new Error('Payer does not have an associated token account for the provided mint.');
+    }
+    
+    // Verify token account owner
+    const tokenAccountData = senderInfo.data.length > 32 ? senderInfo.data.slice(32, 64) : null;
+    if (tokenAccountData) {
+      const ownerFromAccount = new PublicKey(tokenAccountData);
+      console.log(`[PayoutService.payoutSolanaToken] 🔐 Token account owner: ${ownerFromAccount.toBase58()}`);
+      console.log(`[PayoutService.payoutSolanaToken] 💳 Payer public key:    ${payer.publicKey.toBase58()}`);
+      if (!ownerFromAccount.equals(payer.publicKey)) {
+        console.error(`❌ MISMATCH: Token account owner is NOT our payer!`);
+      }
     }
 
     const results: PayoutResult[] = [];
@@ -272,14 +300,24 @@ export class PayoutService {
         )
       );
 
-      const signature = await connection.sendTransaction(tx, [payer]);
-      await connection.confirmTransaction(signature, 'confirmed');
+      try {
+        console.log(`[PayoutService.payoutSolanaToken] 📤 Sending token transfer to ${target.walletAddress}...`);
+        const signature = await connection.sendTransaction(tx, [payer]);
+        await connection.confirmTransaction(signature, 'confirmed');
 
-      results.push({
-        rank: target.rank,
-        walletAddress: target.walletAddress,
-        txHash: signature,
-      });
+        results.push({
+          rank: target.rank,
+          walletAddress: target.walletAddress,
+          txHash: signature,
+        });
+        console.log(`[PayoutService.payoutSolanaToken] ✅ Token transfer successful: ${signature}`);
+      } catch (txErr: any) {
+        console.error(`[PayoutService.payoutSolanaToken] ❌ Token transfer failed for ${target.walletAddress}`);
+        console.error(`Error name: ${txErr?.name}`);
+        console.error(`Error message: ${txErr?.message}`);
+        console.error(`Full error:`, txErr);
+        throw txErr;
+      }
     }
 
     return results;
