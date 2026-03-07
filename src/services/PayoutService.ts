@@ -56,14 +56,11 @@ export class PayoutService {
 
     try {
       const secret = this.parseSecretKey(secretRaw);
-      const payer = Keypair.fromSecretKey(secret);
+      const payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
       return payer.publicKey.toBase58();
     } catch (error: any) {
       const msg = typeof error?.message === 'string' ? error.message : 'Unknown error';
-      if (msg.includes('provided secretKey is invalid')) {
-        throw new Error(`Invalid Solana secret key.\n\nTry exporting your key as a JSON array instead of base64 and paste that. For example:\n[1, 2, 3, ... 64 numbers]\n\nOriginal error: ${msg}`);
-      }
-      throw error;
+      throw new Error(`Invalid Solana secret key: ${msg}`);
     }
   }
 
@@ -106,7 +103,7 @@ export class PayoutService {
     }
 
     const secret = this.parseSecretKey(secretRaw);
-    const payer = Keypair.fromSecretKey(secret);
+    const payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
     const connection = new Connection(rpcUrl, 'confirmed');
     const lamports = Math.round(amountPerWinner * LAMPORTS_PER_SOL);
 
@@ -173,7 +170,7 @@ export class PayoutService {
     }
 
     const secret = this.parseSecretKey(secretRaw);
-    const payer = Keypair.fromSecretKey(secret);
+    const payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
     const connection = new Connection(rpcUrl, 'confirmed');
 
     const mintPubkey = new PublicKey(tokenMintAddress);
@@ -243,28 +240,35 @@ export class PayoutService {
     if (trimmed.startsWith('[')) {
       try {
         const parsed = JSON.parse(trimmed) as number[];
-        if (!Array.isArray(parsed) || parsed.length !== 64) {
-          throw new Error(`Solana secret key array must have exactly 64 elements, got ${parsed.length}`);
+        if (!Array.isArray(parsed)) {
+          throw new Error('Not a valid array');
         }
-        return Uint8Array.from(parsed);
+        // Accept 32-element or 64-element arrays
+        if (parsed.length === 32) {
+          return Uint8Array.from(parsed); // Just the seed
+        } else if (parsed.length === 64) {
+          return Uint8Array.from(parsed); // Full keypair
+        } else {
+          throw new Error(`Must have 32 or 64 elements, got ${parsed.length}`);
+        }
       } catch (error: any) {
-        throw new Error(`Invalid JSON array format from Phantom: ${error?.message || 'JSON parse failed'}. Try exporting your private key again.`);
+        throw new Error(`Invalid JSON array format: ${error?.message || 'JSON parse failed'}`);
       }
     }
 
     try {
       const bytes = Buffer.from(trimmed, 'base64');
-      // Accept 64-66 bytes; if 66, use first 64 (might be an export format quirk)
-      if (bytes.length < 64 || bytes.length > 66) {
-        if (bytes.length === 88) {
-          throw new Error(`Looks like a full keypair export (88 bytes). Please use only the secret key portion (64 bytes).`);
-        }
-        throw new Error(`Solana secret key must be 64 bytes, got ${bytes.length} bytes`);
+      // Phantom exports 32-byte secret or 64-byte keypair
+      if (bytes.length === 32) {
+        return bytes; // Just the seed
+      } else if (bytes.length >= 64 && bytes.length <= 66) {
+        return bytes.slice(0, 64); // Full keypair (or with extra bytes)
+      } else {
+        throw new Error(`Secret key must be 32 or 64 bytes, got ${bytes.length} bytes`);
       }
-      return bytes.slice(0, 64);
     } catch (error: any) {
       const msg = typeof error?.message === 'string' ? error.message : 'decoding failed';
-      throw new Error(`Invalid format from Phantom wallet: ${msg}. Try copying the private key as a JSON array (numbers in square brackets) instead of base64.`);
+      throw new Error(`Invalid Phantom private key format: ${msg}`);
     }
   }
 }
