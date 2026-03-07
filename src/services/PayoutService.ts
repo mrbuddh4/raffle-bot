@@ -56,10 +56,37 @@ export class PayoutService {
 
     try {
       const secret = this.parseSecretKey(secretRaw);
-      const payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
+      console.log(`[PayoutService] Parsed secret key: ${secret.length} bytes`);
+      
+      let payer: Keypair;
+      
+      // Try both methods
+      if (secret.length === 32) {
+        try {
+          payer = Keypair.fromSeed(secret);
+          console.log(`[PayoutService] Successfully created keypair from 32-byte seed`);
+        } catch (seedError: any) {
+          console.log(`[PayoutService] 32-byte seed failed, trying as 64-byte keypair...`);
+          // If seed fails, maybe it's actually a 64-byte keypair
+          payer = Keypair.fromSecretKey(secret);
+        }
+      } else if (secret.length === 64) {
+        try {
+          payer = Keypair.fromSecretKey(secret);
+          console.log(`[PayoutService] Successfully created keypair from 64-byte key`);
+        } catch (keyError: any) {
+          console.log(`[PayoutService] 64-byte keypair failed, trying as seed...`);
+          // If keypair fails, maybe it's a 32-byte seed in a 64-byte buffer
+          payer = Keypair.fromSeed(secret.slice(0, 32));
+        }
+      } else {
+        throw new Error(`Unexpected key length: ${secret.length} bytes. Expected 32 or 64.`);
+      }
+      
       return payer.publicKey.toBase58();
     } catch (error: any) {
       const msg = typeof error?.message === 'string' ? error.message : 'Unknown error';
+      console.error(`[PayoutService] Secret key validation failed: ${msg}`);
       throw new Error(`Invalid Solana secret key: ${msg}`);
     }
   }
@@ -231,9 +258,11 @@ export class PayoutService {
   private parseSecretKey(secretRaw: string): Uint8Array {
     // Aggressively strip all whitespace including newlines, tabs, etc.
     let trimmed = secretRaw.replace(/\s+/g, '').trim();
+    console.log(`[PayoutService] Raw secret length: ${secretRaw.length} chars, trimmed: ${trimmed.length} chars`);
 
     // Handle Phantom wallet export: might have extra brackets like [[ ... ]]
     if (trimmed.startsWith('[[')) {
+      console.log(`[PayoutService] Detected double brackets, stripping...`);
       trimmed = trimmed.slice(1, -1); // Remove outer brackets
     }
 
@@ -243,11 +272,13 @@ export class PayoutService {
         if (!Array.isArray(parsed)) {
           throw new Error('Not a valid array');
         }
+        console.log(`[PayoutService] Parsed JSON array with ${parsed.length} elements`);
+        
         // Accept 32-element or 64-element arrays
         if (parsed.length === 32) {
-          return Uint8Array.from(parsed); // Just the seed
+          return Uint8Array.from(parsed);
         } else if (parsed.length === 64) {
-          return Uint8Array.from(parsed); // Full keypair
+          return Uint8Array.from(parsed);
         } else {
           throw new Error(`Must have 32 or 64 elements, got ${parsed.length}`);
         }
@@ -258,11 +289,16 @@ export class PayoutService {
 
     try {
       const bytes = Buffer.from(trimmed, 'base64');
+      console.log(`[PayoutService] Base64 decoded to ${bytes.length} bytes`);
+      
       // Phantom exports 32-byte secret or 64-byte keypair
       if (bytes.length === 32) {
         return bytes; // Just the seed
-      } else if (bytes.length >= 64 && bytes.length <= 66) {
-        return bytes.slice(0, 64); // Full keypair (or with extra bytes)
+      } else if (bytes.length === 64) {
+        return bytes; // Full keypair
+      } else if (bytes.length === 66) {
+        console.log(`[PayoutService] Got 66 bytes (likely with extra encoding), using first 64`);
+        return bytes.slice(0, 64);
       } else {
         throw new Error(`Secret key must be 32 or 64 bytes, got ${bytes.length} bytes`);
       }
