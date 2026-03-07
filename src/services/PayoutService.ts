@@ -285,6 +285,43 @@ export class PayoutService {
     return results;
   }
 
+  private base58Decode(str: string): Uint8Array | null {
+    // Pure JavaScript Base58 decoder (Solana/Phantom format)
+    const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    
+    try {
+      // Convert base58 string to bigint
+      let num = BigInt(0);
+      for (const char of str) {
+        const digit = ALPHABET.indexOf(char);
+        if (digit === -1) {
+          return null; // Invalid character
+        }
+        num = num * BigInt(58) + BigInt(digit);
+      }
+      
+      // Convert bigint to bytes
+      const bytes: number[] = [];
+      while (num > 0n) {
+        bytes.unshift(Number(num % BigInt(256)));
+        num = num / BigInt(256);
+      }
+      
+      // Add leading zero bytes for leading '1's
+      for (const char of str) {
+        if (char === '1') {
+          bytes.unshift(0);
+        } else {
+          break;
+        }
+      }
+      
+      return bytes.length > 0 ? new Uint8Array(bytes) : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
   private parseSecretKey(secretRaw: string): Uint8Array {
     console.log(`[PayoutService.parseSecretKey] ========== START PARSING ==========`);
     console.log(`[PayoutService.parseSecretKey] Raw input length: ${secretRaw.length} characters`);
@@ -328,7 +365,19 @@ export class PayoutService {
       }
     }
 
-    // Try base64 first, then hex
+    // Try base58 first (Phantom standard export format)
+    console.log(`[PayoutService.parseSecretKey] 🔍 Attempting Base58 decode...`);
+    const base58Bytes = this.base58Decode(trimmed);
+    if (base58Bytes && (base58Bytes.length === 32 || base58Bytes.length === 64)) {
+      console.log(`[PayoutService.parseSecretKey] ✅ FORMAT: Successfully decoded as Base58 → ${base58Bytes.length} bytes`);
+      return base58Bytes;
+    } else if (base58Bytes) {
+      console.log(`[PayoutService.parseSecretKey] ⚠️  Base58 gave ${base58Bytes.length} bytes (need 32 or 64), trying base64...`);
+    } else {
+      console.log(`[PayoutService.parseSecretKey] ⚠️  Base58 decode failed, trying base64...`);
+    }
+
+    // Try base64 as fallback
     try {
       const bytes = Buffer.from(trimmed, 'base64');
       console.log(`[PayoutService.parseSecretKey] 📋 FORMAT: Attempting base64 → ${bytes.length} bytes decoded`);
