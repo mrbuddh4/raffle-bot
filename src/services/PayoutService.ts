@@ -300,11 +300,26 @@ export class PayoutService {
         console.log(`[PayoutService] Got 66 bytes (likely with extra encoding), using first 64`);
         return bytes.slice(0, 64);
       } else {
-        throw new Error(`Secret key must be 32 or 64 bytes, got ${bytes.length} bytes`);
+        throw new Error(`Got ${bytes.length} bytes from base64, trying hex...`);
       }
-    } catch (error: any) {
-      const msg = typeof error?.message === 'string' ? error.message : 'decoding failed';
-      throw new Error(`Invalid Phantom private key format: ${msg}`);
+    } catch (base64Error: any) {
+      console.log(`[PayoutService] Base64 likely failed, trying hex format...`);
+      try {
+        // Try hex format
+        const bytes = Buffer.from(trimmed, 'hex');
+        console.log(`[PayoutService] Hex decoded to ${bytes.length} bytes`);
+        
+        if (bytes.length === 32) {
+          return bytes; // Just the seed
+        } else if (bytes.length === 64) {
+          return bytes; // Full keypair
+        } else {
+          throw new Error(`Hex: secret key must be 32 or 64 bytes, got ${bytes.length} bytes`);
+        }
+      } catch (hexError: any) {
+        const hexMsg = typeof hexError?.message === 'string' ? hexError.message : 'hex decode failed';
+        throw new Error(`Invalid format (tried base64 and hex, hex gave: ${hexMsg})`);
+      }
     }
   }
 }
