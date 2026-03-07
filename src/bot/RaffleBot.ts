@@ -2339,24 +2339,6 @@ export class RaffleBot {
       }
     }
 
-    if (pending.type === 'verify_payout_wallet') {
-      // This shouldn't happen via text, only via callback
-      return;
-    }
-
-        this.pendingByUser.delete(userId);
-        await this.bot.sendMessage(
-          msg.chat.id,
-          `✅ Saved payout signer.\nChain: *${pending.chain.toUpperCase()}*\nMode: *${pending.mode.toUpperCase()}*${pending.mode === 'token' && pending.tokenAddress ? `\nToken: \`${pending.tokenAddress}\`` : ''}\nWallet: \`${walletAddress}\``,
-          this.getAdminBackOptions({ parse_mode: 'Markdown' })
-        );
-      } catch (error: any) {
-        const errorMsg = typeof error?.message === 'string' ? error.message : 'Unknown error';
-        await this.bot.sendMessage(msg.chat.id, `❌ Signer secret validation failed:\n${errorMsg}\n\nPlease check your key format and try again.`, this.getAdminBackOptions({ parse_mode: 'Markdown' }));
-      }
-      return;
-    }
-
     if (pending.type === 'remove_payout_chain') {
       if (!text) {
         return;
