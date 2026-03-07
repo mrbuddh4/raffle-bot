@@ -55,38 +55,44 @@ export class PayoutService {
     }
 
     try {
+      console.log(`[PayoutService] Input length: ${secretRaw.length} chars, first 20: ${secretRaw.slice(0, 20)}`);
       const secret = this.parseSecretKey(secretRaw);
-      console.log(`[PayoutService] Parsed secret key: ${secret.length} bytes`);
+      console.log(`[PayoutService] ✅ Parsed to ${secret.length} bytes, first 8 bytes: ${Array.from(secret.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
       
       let payer: Keypair;
+      let method = 'unknown';
       
-      // Try both methods
+      // Try both methods with detailed error logging
       if (secret.length === 32) {
         try {
           payer = Keypair.fromSeed(secret);
-          console.log(`[PayoutService] Successfully created keypair from 32-byte seed`);
+          method = 'fromSeed(32)';
+          console.log(`[PayoutService] ✅ Using Keypair.fromSeed(32 bytes)`);
         } catch (seedError: any) {
-          console.log(`[PayoutService] 32-byte seed failed, trying as 64-byte keypair...`);
-          // If seed fails, maybe it's actually a 64-byte keypair
+          console.log(`[PayoutService] ⚠️  fromSeed failed: ${seedError?.message}, trying fromSecretKey...`);
           payer = Keypair.fromSecretKey(secret);
+          method = 'fromSecretKey(32)';
         }
       } else if (secret.length === 64) {
         try {
           payer = Keypair.fromSecretKey(secret);
-          console.log(`[PayoutService] Successfully created keypair from 64-byte key`);
+          method = 'fromSecretKey(64)';
+          console.log(`[PayoutService] ✅ Using Keypair.fromSecretKey(64 bytes)`);
         } catch (keyError: any) {
-          console.log(`[PayoutService] 64-byte keypair failed, trying as seed...`);
-          // If keypair fails, maybe it's a 32-byte seed in a 64-byte buffer
+          console.log(`[PayoutService] ⚠️  fromSecretKey failed: ${keyError?.message}, trying fromSeed(first 32)...`);
           payer = Keypair.fromSeed(secret.slice(0, 32));
+          method = 'fromSeed(first 32 of 64)';
         }
       } else {
         throw new Error(`Unexpected key length: ${secret.length} bytes. Expected 32 or 64.`);
       }
       
-      return payer.publicKey.toBase58();
+      const pubkey = payer.publicKey.toBase58();
+      console.log(`[PayoutService] ✅ SUCCESS - Method: ${method}, Derived: ${pubkey}`);
+      return pubkey;
     } catch (error: any) {
       const msg = typeof error?.message === 'string' ? error.message : 'Unknown error';
-      console.error(`[PayoutService] Secret key validation failed: ${msg}`);
+      console.error(`[PayoutService] ❌ FAILED: ${msg}`);
       throw new Error(`Invalid Solana secret key: ${msg}`);
     }
   }
@@ -280,13 +286,22 @@ export class PayoutService {
   }
 
   private parseSecretKey(secretRaw: string): Uint8Array {
-    // Aggressively strip all whitespace including newlines, tabs, etc.
+    console.log(`[PayoutService.parseSecretKey] ========== START PARSING ==========`);
+    console.log(`[PayoutService.parseSecretKey] Raw input length: ${secretRaw.length} characters`);
+    console.log(`[PayoutService.parseSecretKey] First 50 chars: ${secretRaw.slice(0, 50)}`);
+    console.log(`[PayoutService.parseSecretKey] Last 50 chars: ${secretRaw.slice(-50)}`);
+    
     let trimmed = secretRaw.replace(/\s+/g, '').trim();
-    console.log(`[PayoutService] Raw secret length: ${secretRaw.length} chars, trimmed: ${trimmed.length} chars`);
+    console.log(`[PayoutService.parseSecretKey] After stripping whitespace: ${trimmed.length} characters`);
+    console.log(`[PayoutService.parseSecretKey] First 50 chars after trim: ${trimmed.slice(0, 50)}`);
+    
+    if (trimmed.length === 0) {
+      throw new Error(`Secret key is empty after stripping whitespace!`);
+    }
 
     // Handle Phantom wallet export: might have extra brackets like [[ ... ]]
     if (trimmed.startsWith('[[')) {
-      console.log(`[PayoutService] Detected double brackets, stripping...`);
+      console.log(`[PayoutService.parseSecretKey] 📋 Detected double brackets [[...]], stripping outer layer`);
       trimmed = trimmed.slice(1, -1); // Remove outer brackets
     }
 
@@ -296,12 +311,14 @@ export class PayoutService {
         if (!Array.isArray(parsed)) {
           throw new Error('Not a valid array');
         }
-        console.log(`[PayoutService] Parsed JSON array with ${parsed.length} elements`);
+        console.log(`[PayoutService.parseSecretKey] 📋 FORMAT: JSON array with ${parsed.length} elements`);
         
         // Accept 32-element or 64-element arrays
         if (parsed.length === 32) {
+          console.log(`[PayoutService.parseSecretKey] ✅ Valid 32-element JSON array`);
           return Uint8Array.from(parsed);
         } else if (parsed.length === 64) {
+          console.log(`[PayoutService.parseSecretKey] ✅ Valid 64-element JSON array`);
           return Uint8Array.from(parsed);
         } else {
           throw new Error(`Must have 32 or 64 elements, got ${parsed.length}`);
@@ -311,38 +328,43 @@ export class PayoutService {
       }
     }
 
+    // Try base64 first, then hex
     try {
       const bytes = Buffer.from(trimmed, 'base64');
-      console.log(`[PayoutService] Base64 decoded to ${bytes.length} bytes`);
+      console.log(`[PayoutService.parseSecretKey] 📋 FORMAT: Attempting base64 → ${bytes.length} bytes decoded`);
       
-      // Phantom exports 32-byte secret or 64-byte keypair
       if (bytes.length === 32) {
-        return bytes; // Just the seed
+        console.log(`[PayoutService.parseSecretKey] ✅ Valid 32-byte base64 (seed key)`);
+        return bytes;
       } else if (bytes.length === 64) {
-        return bytes; // Full keypair
+        console.log(`[PayoutService.parseSecretKey] ✅ Valid 64-byte base64 (full keypair)`);
+        return bytes;
       } else if (bytes.length === 66) {
-        console.log(`[PayoutService] Got 66 bytes (likely with extra encoding), using first 64`);
+        console.log(`[PayoutService.parseSecretKey] ⚠️  Got 66 bytes from base64 (possibly Phantom quirk), using first 64`);
         return bytes.slice(0, 64);
       } else {
         throw new Error(`Got ${bytes.length} bytes from base64, trying hex...`);
       }
     } catch (base64Error: any) {
-      console.log(`[PayoutService] Base64 likely failed, trying hex format...`);
+      console.log(`[PayoutService.parseSecretKey] ⚠️  Base64 decode didn't give 32/64/66 bytes, trying hex format...`);
       try {
         // Try hex format
         const bytes = Buffer.from(trimmed, 'hex');
-        console.log(`[PayoutService] Hex decoded to ${bytes.length} bytes`);
+        console.log(`[PayoutService.parseSecretKey] 📋 FORMAT: Attempting hex → ${bytes.length} bytes decoded`);
         
         if (bytes.length === 32) {
-          return bytes; // Just the seed
+          console.log(`[PayoutService.parseSecretKey] ✅ Valid 32-byte hex (seed key)`);
+          return bytes;
         } else if (bytes.length === 64) {
-          return bytes; // Full keypair
+          console.log(`[PayoutService.parseSecretKey] ✅ Valid 64-byte hex (full keypair)`);
+          return bytes;
         } else {
-          throw new Error(`Hex: secret key must be 32 or 64 bytes, got ${bytes.length} bytes`);
+          throw new Error(`Hex gave ${bytes.length} bytes, need 32 or 64`);
         }
       } catch (hexError: any) {
         const hexMsg = typeof hexError?.message === 'string' ? hexError.message : 'hex decode failed';
-        throw new Error(`Invalid format (tried base64 and hex, hex gave: ${hexMsg})`);
+        console.error(`[PayoutService.parseSecretKey] ❌ Both base64 and hex failed: ${hexMsg}`);
+        throw new Error(`Invalid format (base64 and hex both failed: ${hexMsg})`);
       }
     }
   }
