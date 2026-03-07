@@ -2320,20 +2320,16 @@ export class RaffleBot {
         });
 
         this.pendingByUser.delete(userId);
-        await this.renderAdminCard(
-          chatId,
-          userId,
+        await this.bot.sendMessage(
+          msg.chat.id,
           `✅ Payout wallet saved.\n\nChain: *${pending.chain.toUpperCase()}*\nMode: *${pending.mode.toUpperCase()}*\nSigner wallet: \`${walletAddress}\``,
-          this.getAdminBackOptions({ parse_mode: 'Markdown' }),
-          query.message?.message_id
+          this.getAdminBackOptions({ parse_mode: 'Markdown' })
         );
       } catch (error: any) {
-        await this.renderAdminCard(
-          chatId,
-          userId,
+        await this.bot.sendMessage(
+          msg.chat.id,
           `❌ ${typeof error?.message === 'string' ? error.message : 'Invalid secret key'}. Try again.`,
-          this.getAdminBackOptions(),
-          query.message?.message_id
+          this.getAdminBackOptions()
         );
         return;
       }
