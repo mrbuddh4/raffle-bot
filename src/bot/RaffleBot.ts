@@ -473,7 +473,7 @@ export class RaffleBot {
         reply_markup: {
           inline_keyboard: [
             [{ text: '✏️ Username', callback_data: 'user:edit_username' }],
-            [{ text: '🟣 EVM Wallet', callback_data: 'user:edit_wallet:evm' }],
+            [{ text: '🟣 Paxeer Network Wallet', callback_data: 'user:edit_wallet:evm' }],
             [{ text: '🟢 Solana Wallet', callback_data: 'user:edit_wallet:solana' }],
             [{ text: '🏠 Home', callback_data: 'user:home' }],
           ],
@@ -869,7 +869,7 @@ export class RaffleBot {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🟣 EVM', callback_data: 'admin:set_payout_chain:evm' },
+              { text: '🟣 Paxeer Network', callback_data: 'admin:set_payout_chain:evm' },
               { text: '🟢 Solana', callback_data: 'admin:set_payout_chain:solana' },
             ],
             [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
@@ -906,7 +906,7 @@ export class RaffleBot {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🟣 EVM', callback_data: 'admin:remove_payout_chain:evm' },
+              { text: '🟣 Paxeer Network', callback_data: 'admin:remove_payout_chain:evm' },
               { text: '🟢 Solana', callback_data: 'admin:remove_payout_chain:solana' },
             ],
             [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
@@ -1080,7 +1080,7 @@ export class RaffleBot {
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: '🟣 EVM', callback_data: 'user:register_chain:evm' },
+                  { text: '🟣 Paxeer Network', callback_data: 'user:register_chain:evm' },
                   { text: '🟢 Solana', callback_data: 'user:register_chain:solana' },
                 ],
                 [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],
@@ -1170,7 +1170,7 @@ export class RaffleBot {
         [
           `✏️ *Edit ${chain.toUpperCase()} Wallet*`,
           '',
-          chain === 'evm' ? 'Send your new EVM wallet address (0x...)' : 'Send your new Solana wallet address',
+          chain === 'evm' ? 'Send your new Paxeer Network wallet address (0x...)' : 'Send your new Solana wallet address',
         ].join('\n'),
         {
           parse_mode: 'Markdown',
@@ -1383,7 +1383,7 @@ export class RaffleBot {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🟣 EVM', callback_data: 'admin:set_payout_chain:evm' },
+                { text: '🟣 Paxeer Network', callback_data: 'admin:set_payout_chain:evm' },
                 { text: '🟢 Solana', callback_data: 'admin:set_payout_chain:solana' },
               ],
               [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
@@ -1406,7 +1406,7 @@ export class RaffleBot {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🟣 EVM', callback_data: 'admin:remove_payout_chain:evm' },
+                { text: '🟣 Paxeer Network', callback_data: 'admin:remove_payout_chain:evm' },
                 { text: '🟢 Solana', callback_data: 'admin:remove_payout_chain:solana' },
               ],
               [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }],
@@ -2534,7 +2534,7 @@ export class RaffleBot {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '🟣 EVM', callback_data: 'user:register_chain:evm' },
+                { text: '🟣 Paxeer Network', callback_data: 'user:register_chain:evm' },
                 { text: '🟢 Solana', callback_data: 'user:register_chain:solana' },
               ],
               [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],
@@ -2558,7 +2558,7 @@ export class RaffleBot {
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: '🟣 EVM', callback_data: 'user:register_chain:evm' },
+                  { text: '🟣 Paxeer Network', callback_data: 'user:register_chain:evm' },
                   { text: '🟢 Solana', callback_data: 'user:register_chain:solana' },
                 ],
                 [{ text: '⬅️ Back', callback_data: 'user:reg_back_username' }],

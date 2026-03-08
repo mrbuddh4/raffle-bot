@@ -105,7 +105,7 @@ export class PayoutService {
     const privateKey = signerSecret || process.env.EVM_PAYOUT_PRIVATE_KEY;
 
     if (!rpcUrl || !privateKey) {
-      throw new Error('EVM payout env vars missing. Required: EVM_RPC_URL (or RPC_ENDPOINT) and EVM_PAYOUT_PRIVATE_KEY');
+      throw new Error('Paxeer Network payout env vars missing. Required: EVM_RPC_URL (or RPC_ENDPOINT) and EVM_PAYOUT_PRIVATE_KEY');
     }
 
     const provider = new ethers.JsonRpcProvider(rpcUrl);
