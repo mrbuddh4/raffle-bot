@@ -6,6 +6,7 @@ import {
   getAssociatedTokenAddress,
   getMint,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
 } from '@solana/spl-token';
 import { WalletChain } from '../utils/validators';
 
@@ -260,9 +261,18 @@ export class PayoutService {
     
     console.log(`[PayoutService.payoutSolanaToken] ✅ Account exists. Owner: ${accountInfo.owner.toBase58()}, Data length: ${accountInfo.data.length}`);
     
+    // Determine which token program this is
+    let tokenProgramId = TOKEN_PROGRAM_ID;
+    if (accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)) {
+      console.log(`[PayoutService.payoutSolanaToken] 🔄 Detected Token 2022 Program (newer standard)`);
+      tokenProgramId = TOKEN_2022_PROGRAM_ID;
+    } else if (!accountInfo.owner.equals(TOKEN_PROGRAM_ID)) {
+      console.warn(`[PayoutService.payoutSolanaToken] ⚠️ Account owner is neither Token Program nor Token 2022 Program`);
+    }
+    
     let mintInfo;
     try {
-      mintInfo = await getMint(connection, mintPubkey);
+      mintInfo = await getMint(connection, mintPubkey, undefined, tokenProgramId);
       console.log(`[PayoutService.payoutSolanaToken] ✅ Mint info retrieved. Decimals: ${mintInfo.decimals}`);
     } catch (mintErr: any) {
       console.error(`[PayoutService.payoutSolanaToken] ❌ Failed to parse as token mint`);
@@ -275,7 +285,7 @@ export class PayoutService {
     
     const amountUnits = BigInt(Math.round(amountPerWinner * Math.pow(10, mintInfo.decimals)));
 
-    const senderTokenAccount = await getAssociatedTokenAddress(mintPubkey, payer.publicKey);
+    const senderTokenAccount = await getAssociatedTokenAddress(mintPubkey, payer.publicKey, false, tokenProgramId);
     console.log(`[PayoutService.payoutSolanaToken] 📊 Derived payer token account: ${senderTokenAccount.toBase58()}`);
     const senderInfo = await connection.getAccountInfo(senderTokenAccount);
     if (!senderInfo) {
@@ -286,7 +296,7 @@ export class PayoutService {
 
     for (const target of targets) {
       const recipient = new PublicKey(target.walletAddress);
-      const recipientTokenAccount = await getAssociatedTokenAddress(mintPubkey, recipient);
+      const recipientTokenAccount = await getAssociatedTokenAddress(mintPubkey, recipient, false, tokenProgramId);
       const recipientInfo = await connection.getAccountInfo(recipientTokenAccount);
 
       const tx = new Transaction();
@@ -298,7 +308,7 @@ export class PayoutService {
             recipientTokenAccount,
             recipient,
             mintPubkey,
-            TOKEN_PROGRAM_ID
+            tokenProgramId
           )
         );
       }
@@ -310,7 +320,7 @@ export class PayoutService {
           payer.publicKey,
           amountUnits,
           [],
-          TOKEN_PROGRAM_ID
+          tokenProgramId
         )
       );
 
