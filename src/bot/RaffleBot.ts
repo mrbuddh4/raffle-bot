@@ -3237,7 +3237,11 @@ export class RaffleBot {
     ];
 
     if (raffle.rewardToken && raffle.rewardTotalAmount != null) {
-      captionLines.push(`Reward: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`);
+      captionLines.push(`Prize Pool: *${raffle.rewardTotalAmount} ${raffle.rewardToken}*`);
+      if (!raffle.allEntrantsWin && raffle.winnerCount > 0) {
+        const amountPerWinner = (raffle.rewardTotalAmount / raffle.winnerCount).toFixed(2);
+        captionLines.push(`Amount Per Winner: *${amountPerWinner} ${raffle.rewardToken}*`);
+      }
     }
 
     if (hoursText) {
@@ -3377,15 +3381,29 @@ export class RaffleBot {
       const enteredText = `Entered: ${entryCounts.get(raffle.id) ?? 0}`;
       const chainName = raffle.chain === 'evm' ? 'Paxeer Network' : 'Solana';
       const chainText = `Chain: ${chainName}`;
-      return [
+      
+      const blockLines: string[] = [
         `• ${raffle.title}`,
         '',
         winnersText,
         enteredText,
-        timeLeft ?? '',
-        '',
-        chainText,
-      ].join('\n');
+      ];
+      
+      if (raffle.rewardToken && raffle.rewardTotalAmount != null) {
+        blockLines.push(`Prize Pool: ${raffle.rewardTotalAmount} ${raffle.rewardToken}`);
+        if (!raffle.allEntrantsWin && raffle.winnerCount > 0) {
+          const amountPerWinner = (raffle.rewardTotalAmount / raffle.winnerCount).toFixed(2);
+          blockLines.push(`Per Winner: ${amountPerWinner} ${raffle.rewardToken}`);
+        }
+      }
+      
+      if (timeLeft) {
+        blockLines.push(timeLeft);
+      }
+      
+      blockLines.push('', chainText);
+      
+      return blockLines.join('\n');
     });
 
     if (startLink) {
