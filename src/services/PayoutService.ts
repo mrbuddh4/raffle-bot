@@ -6,9 +6,11 @@ import {
   getAssociatedTokenAddress,
   getMint,
   TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
 } from '@solana/spl-token';
 import { WalletChain } from '../utils/validators';
+
+// Token 2022 Program ID (Pump.fun and other Token 2022 tokens)
+const TOKEN_2022_PROGRAM_ID = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 
 export interface PayoutTarget {
   rank: number;
