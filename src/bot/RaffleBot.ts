@@ -3125,8 +3125,10 @@ export class RaffleBot {
       return payoutByRank;
     }
 
+    console.log(`[RaffleBot.runAutomaticPayoutForRaffle] 🔍 Looking up signer for admin ${raffle.createdBy}, chain: ${raffle.chain}, mode: native`);
     const signer = await this.adminPayoutWalletService.getWallet(raffle.createdBy, raffle.chain, 'native');
     if (!signer) {
+      console.log(`[RaffleBot.runAutomaticPayoutForRaffle] ❌ No signer found for admin ${raffle.createdBy} on ${raffle.chain}`);
       await this.bot.sendMessage(
         raffle.createdBy,
         `⚠️ Auto payout skipped for *${raffle.title}*: no native payout signer configured for *${getChainDisplayName(raffle.chain)}*.`,
@@ -3135,8 +3137,12 @@ export class RaffleBot {
       return payoutByRank;
     }
 
+    console.log(`[RaffleBot.runAutomaticPayoutForRaffle] ✅ Found signer for wallet ${signer.walletAddress}`);
+    }
+
     const amountPerWinner = raffle.rewardTotalAmount / winners.length;
     if (!Number.isFinite(amountPerWinner) || amountPerWinner <= 0) {
+      console.log(`[RaffleBot.runAutomaticPayoutForRaffle] ❌ Invalid reward amount: ${raffle.rewardTotalAmount} for ${winners.length} winners`);
       await this.bot.sendMessage(
         raffle.createdBy,
         `⚠️ Auto payout skipped for *${raffle.title}*: invalid reward amount configured.`,
