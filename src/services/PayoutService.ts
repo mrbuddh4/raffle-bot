@@ -247,7 +247,22 @@ export class PayoutService {
     const connection = new Connection(rpcUrl, 'confirmed');
 
     const mintPubkey = new PublicKey(tokenMintAddress);
-    const mintInfo = await getMint(connection, mintPubkey);
+    console.log(`[PayoutService.payoutSolanaToken] 🪙 Token mint address: ${tokenMintAddress}`);
+    console.log(`[PayoutService.payoutSolanaToken] 🔍 Fetching mint info from Solana...`);
+    
+    let mintInfo;
+    try {
+      mintInfo = await getMint(connection, mintPubkey);
+      console.log(`[PayoutService.payoutSolanaToken] ✅ Mint info retrieved. Decimals: ${mintInfo.decimals}`);
+    } catch (mintErr: any) {
+      console.error(`[PayoutService.payoutSolanaToken] ❌ Failed to fetch mint info`);
+      console.error(`Error type: ${mintErr?.name}`);
+      console.error(`Error code: ${mintErr?.code}`);
+      console.error(`Error message: ${mintErr?.message}`);
+      console.error(`Full error:`, mintErr);
+      throw mintErr;
+    }
+    
     const amountUnits = BigInt(Math.round(amountPerWinner * Math.pow(10, mintInfo.decimals)));
 
     const senderTokenAccount = await getAssociatedTokenAddress(mintPubkey, payer.publicKey);
