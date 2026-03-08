@@ -248,19 +248,29 @@ export class PayoutService {
 
     const mintPubkey = new PublicKey(tokenMintAddress);
     console.log(`[PayoutService.payoutSolanaToken] 🪙 Token mint address: ${tokenMintAddress}`);
-    console.log(`[PayoutService.payoutSolanaToken] 🔍 Fetching mint info from Solana...`);
+    console.log(`[PayoutService.payoutSolanaToken] 🔍 Checking account on-chain...`);
+    
+    // First, check if the account exists at all
+    const accountInfo = await connection.getAccountInfo(mintPubkey);
+    if (!accountInfo) {
+      const err = new Error(`Token mint account not found at address: ${tokenMintAddress}`);
+      console.error(`[PayoutService.payoutSolanaToken] ❌ ${err.message}`);
+      throw err;
+    }
+    
+    console.log(`[PayoutService.payoutSolanaToken] ✅ Account exists. Owner: ${accountInfo.owner.toBase58()}, Data length: ${accountInfo.data.length}`);
     
     let mintInfo;
     try {
       mintInfo = await getMint(connection, mintPubkey);
       console.log(`[PayoutService.payoutSolanaToken] ✅ Mint info retrieved. Decimals: ${mintInfo.decimals}`);
     } catch (mintErr: any) {
-      console.error(`[PayoutService.payoutSolanaToken] ❌ Failed to fetch mint info`);
+      console.error(`[PayoutService.payoutSolanaToken] ❌ Failed to parse as token mint`);
       console.error(`Error type: ${mintErr?.name}`);
       console.error(`Error code: ${mintErr?.code}`);
       console.error(`Error message: ${mintErr?.message}`);
-      console.error(`Full error:`, mintErr);
-      throw mintErr;
+      const err = new Error(`The account at ${tokenMintAddress} is not a valid token mint. Owner: ${accountInfo.owner.toBase58()}`);
+      throw err;
     }
     
     const amountUnits = BigInt(Math.round(amountPerWinner * Math.pow(10, mintInfo.decimals)));
