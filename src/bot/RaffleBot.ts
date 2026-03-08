@@ -463,7 +463,7 @@ export class RaffleBot {
         '👤 *Profile Editor*',
         notice ? `${notice}` : null,
         `Username: *${user.displayUsername}*`,
-        `EVM Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
+        `Paxeer Network Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
         `Solana Wallet: ${user.solanaWalletAddress ? `\`${user.solanaWalletAddress}\`` : '_not set_'}`,
         '',
         'Choose what you want to edit:',
@@ -3902,7 +3902,7 @@ export class RaffleBot {
       user
         ? [
             `✅ Registered as *${user.displayUsername}*`,
-            `EVM Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
+            `Paxeer Network Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
             `Solana Wallet: ${user.solanaWalletAddress ? `\`${user.solanaWalletAddress}\`` : '_not set_'}`,
           ].join('\n')
         : 'You are not registered yet.',
