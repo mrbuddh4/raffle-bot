@@ -3375,7 +3375,8 @@ export class RaffleBot {
       const timeLeft = this.formatTimeRemaining(raffle.endsAt);
       const winnersText = `Winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}`;
       const enteredText = `Entered: ${entryCounts.get(raffle.id) ?? 0}`;
-      const chainText = `Chain: ${raffle.chain.toUpperCase()}`;
+      const chainName = raffle.chain === 'evm' ? 'Paxeer Network' : 'Solana';
+      const chainText = `Chain: ${chainName}`;
       return [
         `• ${raffle.title}`,
         '',
