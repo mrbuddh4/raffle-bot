@@ -10,7 +10,7 @@ import { AdminPayoutWalletService } from '../services/AdminPayoutWalletService';
 import { PayrollGroupService } from '../services/PayrollGroupService';
 import { GroupChatService } from '../services/GroupChatService';
 import { getAdminIds, getRequiredEnv } from '../utils/env';
-import { isValidWalletForChain, normalizeWallet, parseWalletChain, WalletChain } from '../utils/validators';
+import { isValidWalletForChain, normalizeWallet, parseWalletChain, WalletChain, getChainDisplayName } from '../utils/validators';
 
 type PendingState =
   | { type: 'register_username' }
@@ -514,7 +514,7 @@ export class RaffleBot {
       const enteredAt = raffle.enteredAt.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
       return [
         `• *${raffle.title}*`,
-        `${raffle.chain.toUpperCase()} · status: *${status}* · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
+        `${getChainDisplayName(raffle.chain)} · status: *${status}* · winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
         countdown,
         `entered: ${enteredAt}`,
       ].filter(Boolean).join('\n');
@@ -571,7 +571,7 @@ export class RaffleBot {
       const payoutText = raffle.payoutStatus.toUpperCase();
       return [
         `• *${raffle.title}*`,
-        `${raffle.chain.toUpperCase()} · status: *${status}* · rank: *#${raffle.rank}*`,
+        `${getChainDisplayName(raffle.chain)} · status: *${status}* · rank: *#${raffle.rank}*`,
         `Won: *${wonAmountText}*`,
         `Payout: *${payoutText}*`,
       ].join('\n');
@@ -932,7 +932,7 @@ export class RaffleBot {
 
     const lines = wallets.map((wallet) => {
       const tokenLine = wallet.mode === 'token' && wallet.tokenAddress ? `\n   Token: \`${wallet.tokenAddress}\`` : '';
-      return `${wallet.chain.toUpperCase()} ${wallet.mode.toUpperCase()} → \`${wallet.walletAddress}\`${tokenLine}`;
+      return `${getChainDisplayName(wallet.chain)} ${wallet.mode.toUpperCase()} → \`${wallet.walletAddress}\`${tokenLine}`;
     });
     await this.renderAdminCard(
       chatId,
@@ -959,7 +959,7 @@ export class RaffleBot {
       const rewardText = raffle.rewardToken && raffle.rewardTotalAmount != null
         ? ` · reward: ${raffle.rewardTotalAmount} ${raffle.rewardToken}`
         : '';
-      return `#${raffle.id} · *${raffle.title}* · ${raffle.status.toUpperCase()} · ${raffle.chain.toUpperCase()} · winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}${rewardText}`;
+      return `#${raffle.id} · *${raffle.title}* · ${raffle.status.toUpperCase()} · ${getChainDisplayName(raffle.chain)} · winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}${rewardText}`;
     });
 
     await this.renderAdminCard(
@@ -988,7 +988,7 @@ export class RaffleBot {
       chatId,
       adminId,
       raffle
-        ? `🛠 Admin Panel\nYour active raffle: *${raffle.title}* (${raffle.status}) [${raffle.chain.toUpperCase()}] · winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}${rewardText}`
+        ? `🛠 Admin Panel\nYour active raffle: *${raffle.title}* (${raffle.status}) [${getChainDisplayName(raffle.chain)}] · winners: ${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}${rewardText}`
         : '🛠 Admin Panel\nYou have no active raffle.',
       {
         parse_mode: 'Markdown',
@@ -1168,7 +1168,7 @@ export class RaffleBot {
         chatId,
         userId,
         [
-          `✏️ *Edit ${chain.toUpperCase()} Wallet*`,
+          `✏️ *Edit ${getChainDisplayName(chain)} Wallet*`,
           '',
           chain === 'evm' ? 'Send your new Paxeer Network wallet address (0x...)' : 'Send your new Solana wallet address',
         ].join('\n'),
@@ -1270,7 +1270,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         chatId,
         userId,
-        `❌ *Cancel Active Raffle*\n\nTitle: *${activeRaffle.title}*\nChain: *${activeRaffle.chain.toUpperCase()}*\n\nAre you sure you want to cancel this raffle?`,
+        `❌ *Cancel Active Raffle*\n\nTitle: *${activeRaffle.title}*\nChain: *${getChainDisplayName(activeRaffle.chain)}*\n\nAre you sure you want to cancel this raffle?`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -1429,7 +1429,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         chatId,
         userId,
-        `Choose payout mode for ${chain.toUpperCase()}:`,
+        `Choose payout mode for ${getChainDisplayName(chain)}:`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -1492,7 +1492,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         chatId,
         userId,
-        `Choose mode to remove for ${chain.toUpperCase()}:`,
+        `Choose mode to remove for ${getChainDisplayName(chain)}:`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -1524,8 +1524,8 @@ export class RaffleBot {
         chatId,
         userId,
         removed
-          ? `✅ Removed payout signer for *${pending.chain.toUpperCase()} ${mode.toUpperCase()}*.`
-          : `No payout signer found for *${pending.chain.toUpperCase()} ${mode.toUpperCase()}*.`,
+          ? `✅ Removed payout signer for *${getChainDisplayName(pending.chain)} ${mode.toUpperCase()}*.`
+          : `No payout signer found for *${getChainDisplayName(pending.chain)} ${mode.toUpperCase()}*.`,
         this.getAdminBackOptions({ parse_mode: 'Markdown' }),
         query.message?.message_id
       );
@@ -1565,7 +1565,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         chatId,
         userId,
-        `Choose payout mode for *${raffle.chain.toUpperCase()}*:`,
+        `Choose payout mode for *${getChainDisplayName(raffle.chain)}*:`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -1595,7 +1595,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           chatId,
           userId,
-          `Send native amount per winner for ${pending.chain.toUpperCase()} (example: 0.01).`,
+          `Send native amount per winner for ${getChainDisplayName(pending.chain)} (example: 0.01).`,
           this.getAdminBackOptions(),
           query.message?.message_id
         );
@@ -1699,7 +1699,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           chatId,
           userId,
-          `⏳ Sending ${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'} payouts to ${execution.targets.length} wallet(s)...`,
+          `⏳ Sending ${getChainDisplayName(execution.chain)} ${execution.mode === 'native' ? 'native' : 'token'} payouts to ${execution.targets.length} wallet(s)...`,
           this.getAdminBackOptions(),
           query.message?.message_id
         );
@@ -1717,7 +1717,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           chatId,
           userId,
-          `✅ On-chain payout complete.\nMode: *${execution.mode.toUpperCase()}*\nFrom wallet: \`${execution.signerWalletAddress}\`\nAmount each: *${execution.amount}* (${execution.chain.toUpperCase()} ${execution.mode === 'native' ? 'native' : 'token'})\n${execution.tokenAddress ? `Token: \`${execution.tokenAddress}\`\n` : ''}\n${lines}`,
+          `✅ On-chain payout complete.\nMode: *${execution.mode.toUpperCase()}*\nFrom wallet: \`${execution.signerWalletAddress}\`\nAmount each: *${execution.amount}* (${getChainDisplayName(execution.chain)} ${execution.mode === 'native' ? 'native' : 'token'})\n${execution.tokenAddress ? `Token: \`${execution.tokenAddress}\`\n` : ''}\n${lines}`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' }),
           query.message?.message_id
         );
@@ -1831,7 +1831,7 @@ export class RaffleBot {
         await this.renderAdminCard(
           chatId,
           userId,
-          `No payout signer configured for *${group.chain.toUpperCase()} ${group.mode.toUpperCase()}*.`,
+          `No payout signer configured for *${getChainDisplayName(group.chain)} ${group.mode.toUpperCase()}*.`,
           this.getAdminBackOptions({ parse_mode: 'Markdown' }),
           query.message?.message_id
         );
@@ -1860,7 +1860,7 @@ export class RaffleBot {
         [
           `🧾 *Payroll Group Preview*`,
           `Group: *${group.name}*`,
-          `Chain: *${group.chain.toUpperCase()}*`,
+          `Chain: *${getChainDisplayName(group.chain)}*`,
           `Mode: *${group.mode.toUpperCase()}*`,
           group.tokenAddress ? `Token: \`${group.tokenAddress}\`` : null,
           `Rows: *${targets.length}*`,
@@ -1967,7 +1967,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         chatId,
         userId,
-        `💼 *Payroll CSV*\n\nChain: *${chain.toUpperCase()}*\nChoose payout mode:`,
+        `💼 *Payroll CSV*\n\nChain: *${getChainDisplayName(chain)}*\nChoose payout mode:`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -3129,7 +3129,7 @@ export class RaffleBot {
     if (!signer) {
       await this.bot.sendMessage(
         raffle.createdBy,
-        `⚠️ Auto payout skipped for *${raffle.title}*: no native payout signer configured for *${raffle.chain.toUpperCase()}*.`,
+        `⚠️ Auto payout skipped for *${raffle.title}*: no native payout signer configured for *${getChainDisplayName(raffle.chain)}*.`,
         { parse_mode: 'Markdown' }
       );
       return payoutByRank;

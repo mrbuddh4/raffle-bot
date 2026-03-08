@@ -39,3 +39,14 @@ export function parseWalletChain(value: string): WalletChain | null {
 
   return null;
 }
+
+export function getChainDisplayName(chain: WalletChain | string): string {
+  const normalized = String(chain).toLowerCase();
+  if (normalized === 'evm') {
+    return 'Paxeer Network';
+  }
+  if (normalized === 'solana') {
+    return 'Solana';
+  }
+  return chain.toUpperCase();
+}
