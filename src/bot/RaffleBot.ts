@@ -3230,7 +3230,7 @@ export class RaffleBot {
     const captionLines: string[] = [
       `🚨 *RAFFLE IS LIVE* 🚨`,
       '',
-      `*${raffle.title}* [${raffle.chain.toUpperCase()}]`,
+      `*${raffle.title}*`,
       '',
       `Winners: *${raffle.allEntrantsWin ? 'all entrants' : raffle.winnerCount}*`,
       `Entries: *${entryCount}*`,
