@@ -3109,7 +3109,7 @@ export class RaffleBot {
       }
 
       const txUrl = this.getTransactionExplorerUrl(winner.walletChain, payout.txHash);
-      return `${winner.rank}. ${mention}\nTx: ${txUrl}`;
+      return `${winner.rank}. ${mention}\n[Tx](${txUrl})`;
     }).join('\n\n');
 
     await this.sendRaffleClosedAnnouncement(raffle, winnerLines);
@@ -3329,12 +3329,12 @@ export class RaffleBot {
   ): Promise<void> {
     const message = `🏁 ${raffle.title} is closed.\n\n🎉 WINNER WINNER 🎉\n${winnerLines}`;
 
-    await this.bot.sendMessage(raffle.createdBy, message, this.getAdminBackOptions());
+    await this.bot.sendMessage(raffle.createdBy, message, this.getAdminBackOptions({ parse_mode: 'Markdown' }));
 
     const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
     await Promise.all(targetChatIds.map(async (targetChatId) => {
       try {
-        await this.bot.sendMessage(targetChatId, message);
+        await this.bot.sendMessage(targetChatId, message, { parse_mode: 'Markdown' });
       } catch (error: any) {
         await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
       }
