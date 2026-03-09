@@ -3327,14 +3327,45 @@ export class RaffleBot {
     raffle: { createdBy: number; announcementChatId: number | null; title: string; chain: WalletChain },
     winnerLines: string
   ): Promise<void> {
-    const message = `🏁 ${raffle.title} is closed.\n\n🎉 WINNER WINNER 🎉\n${winnerLines}`;
+    const header = `🏁 ${raffle.title} is closed.\n\n🎉 WINNER WINNER 🎉`;
+    const maxMessageLength = 4096;
+    const maxContentLength = maxMessageLength - header.length - 20; // Leave buffer
+    
+    // Split winners into chunks that fit within message limit
+    const messages: string[] = [];
+    let currentMessage = '';
+    
+    for (const line of winnerLines.split('\n\n')) {
+      if ((currentMessage + line + '\n\n').length > maxContentLength && currentMessage) {
+        messages.push(currentMessage);
+        currentMessage = line;
+      } else {
+        currentMessage = currentMessage ? currentMessage + '\n\n' + line : line;
+      }
+    }
+    if (currentMessage) {
+      messages.push(currentMessage);
+    }
 
-    await this.bot.sendMessage(raffle.createdBy, message, this.getAdminBackOptions({ parse_mode: 'Markdown' }));
+    // Send header + first batch of winners
+    const firstMessage = header + '\n' + messages[0];
+    await this.bot.sendMessage(raffle.createdBy, firstMessage, this.getAdminBackOptions({ parse_mode: 'Markdown' }));
 
+    // Send remaining batches
+    for (let i = 1; i < messages.length; i++) {
+      await this.bot.sendMessage(raffle.createdBy, messages[i], this.getAdminBackOptions({ parse_mode: 'Markdown' }));
+    }
+
+    // Announce to group chats
     const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
     await Promise.all(targetChatIds.map(async (targetChatId) => {
       try {
-        await this.bot.sendMessage(targetChatId, message, { parse_mode: 'Markdown' });
+        const firstGroupMessage = header + '\n' + messages[0];
+        await this.bot.sendMessage(targetChatId, firstGroupMessage, { parse_mode: 'Markdown' });
+        
+        for (let i = 1; i < messages.length; i++) {
+          await this.bot.sendMessage(targetChatId, messages[i], { parse_mode: 'Markdown' });
+        }
       } catch (error: any) {
         await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
       }
