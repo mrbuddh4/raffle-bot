@@ -3172,7 +3172,7 @@ export class RaffleBot {
 
   private getTransactionExplorerUrl(chain: WalletChain, txHash: string): string {
     const base = chain === 'evm'
-      ? (process.env.EVM_TX_EXPLORER_BASE_URL?.trim() || 'https://basescan.org/tx/')
+      ? (process.env.EVM_TX_EXPLORER_BASE_URL?.trim() || 'https://paxscan.io/tx/')
       : (process.env.SOLANA_TX_EXPLORER_BASE_URL?.trim() || 'https://solscan.io/tx/');
     const normalizedBase = base.endsWith('/') ? base : `${base}/`;
     return `${normalizedBase}${txHash}`;
