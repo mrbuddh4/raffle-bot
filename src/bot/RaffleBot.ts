@@ -22,8 +22,10 @@ type PendingState =
   | { type: 'create_raffle_winners'; chatId: number; title: string }
   | { type: 'create_raffle_chain'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean }
   | { type: 'create_raffle_duration'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain }
-  | { type: 'create_raffle_reward_token'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number }
-  | { type: 'create_raffle_reward_amount'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number; rewardToken: string }
+  | { type: 'create_raffle_reward_type'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number }
+  | { type: 'create_raffle_reward_ca'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number }
+  | { type: 'create_raffle_reward_token'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number; tokenCA?: string }
+  | { type: 'create_raffle_reward_amount'; chatId: number; title: string; winnerCount: number; allEntrantsWin: boolean; chain: WalletChain; durationHours: number; rewardToken: string; tokenCA?: string }
   | { type: 'csv_upload' }
   | { type: 'payroll_chain' }
   | { type: 'payroll_mode'; chain: WalletChain }
@@ -1308,6 +1310,58 @@ export class RaffleBot {
       return;
     }
 
+    if (data === 'admin:create_raffle_reward_type:native' || data === 'admin:create_raffle_reward_type:custom') {
+      const pending = this.pendingByUser.get(userId);
+      if (pending?.type !== 'create_raffle_reward_type') {
+        return;
+      }
+
+      const isCustom = data.endsWith(':custom');
+      
+      if (isCustom) {
+        // Custom token selected - ask for contract address
+        this.pendingByUser.set(userId, {
+          type: 'create_raffle_reward_ca',
+          chatId: pending.chatId,
+          title: pending.title,
+          winnerCount: pending.winnerCount,
+          allEntrantsWin: pending.allEntrantsWin,
+          chain: pending.chain,
+          durationHours: pending.durationHours,
+        });
+        const caPrompt = pending.chain === 'evm'
+          ? 'Step 5a/7 — Send the token contract address (CA) for the custom token (example: 0x...).'
+          : 'Step 5a/7 — Send the token mint address for the custom token (example: ...).';
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          `➕ *Create Raffle*\n\n${caPrompt}`,
+          this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+          query.message?.message_id
+        );
+      } else {
+        // Native token selected - skip CA and go directly to token name
+        this.pendingByUser.set(userId, {
+          type: 'create_raffle_reward_token',
+          chatId: pending.chatId,
+          title: pending.title,
+          winnerCount: pending.winnerCount,
+          allEntrantsWin: pending.allEntrantsWin,
+          chain: pending.chain,
+          durationHours: pending.durationHours,
+        });
+        const tokenPrompt = pending.chain === 'evm' ? 'PAX' : 'SOL';
+        await this.renderAdminCard(
+          chatId,
+          userId,
+          `➕ *Create Raffle*\n\nStep 6/7 — What is the name/symbol of the token being dropped? (Suggested: ${tokenPrompt})`,
+          this.getAdminBackOptions({ parse_mode: 'Markdown' }),
+          query.message?.message_id
+        );
+      }
+      return;
+    }
+
     if (data === 'admin:create_raffle_chain:evm' || data === 'admin:create_raffle_chain:solana') {
       const pending = this.pendingByUser.get(userId);
       if (pending?.type !== 'create_raffle_chain') {
@@ -1326,7 +1380,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         chatId,
         userId,
-        '➕ *Create Raffle*\n\nStep 4/6 — How many hours should this raffle run? Send a positive whole number (example: 24).',
+        '➕ *Create Raffle*\n\nStep 4/7 — How many hours should this raffle run? Send a positive whole number (example: 24).',
         this.getAdminBackOptions({ parse_mode: 'Markdown' }),
         query.message?.message_id
       );
@@ -2637,7 +2691,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         msg.chat.id,
         userId,
-        '➕ *Create Raffle*\n\nStep 2/6 — How many winners? Send a number (example: 10) or choose *All Entrants*.',
+        '➕ *Create Raffle*\n\nStep 2/7 — How many winners? Send a number (example: 10) or choose *All Entrants*.',
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -2679,7 +2733,7 @@ export class RaffleBot {
         winnerCount,
         allEntrantsWin,
       });
-      await this.renderAdminCard(msg.chat.id, userId, `➕ *Create Raffle*\n\nStep 3/6 — Choose raffle chain:\nWinners: *${allEntrantsWin ? 'All entrants' : winnerCount}*`, {
+      await this.renderAdminCard(msg.chat.id, userId, `➕ *Create Raffle*\n\nStep 3/7 — Choose raffle chain:\nWinners: *${allEntrantsWin ? 'All entrants' : winnerCount}*`, {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
@@ -2709,7 +2763,7 @@ export class RaffleBot {
         allEntrantsWin: pending.allEntrantsWin,
         chain,
       });
-      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 4/6 — How many hours should this raffle run? Send a positive whole number (example: 24).', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
+      await this.renderAdminCard(msg.chat.id, userId, '➕ *Create Raffle*\n\nStep 4/7 — How many hours should this raffle run? Send a positive whole number (example: 24).', this.getAdminBackOptions({ parse_mode: 'Markdown' }));
       return;
     }
 
@@ -2721,7 +2775,7 @@ export class RaffleBot {
       }
 
       this.pendingByUser.set(userId, {
-        type: 'create_raffle_reward_token',
+        type: 'create_raffle_reward_type',
         chatId: pending.chatId,
         title: pending.title,
         winnerCount: pending.winnerCount,
@@ -2732,7 +2786,54 @@ export class RaffleBot {
       await this.renderAdminCard(
         msg.chat.id,
         userId,
-        '➕ *Create Raffle*\n\nStep 5/6 — What token will be dropped to winners? Send token name/symbol (example: USDC).',
+        '➕ *Create Raffle*\n\nStep 5/7 — What type of token will be dropped?',
+        {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '💰 Native Token', callback_data: 'admin:create_raffle_reward_type:native' }],
+              [{ text: '🪙 Custom Token', callback_data: 'admin:create_raffle_reward_type:custom' }],
+            ],
+          },
+        }
+      );
+      return;
+    }
+
+    if (pending.type === 'create_raffle_reward_ca') {
+      const tokenCA = text.trim();
+      if (!tokenCA) {
+        await this.renderAdminCard(msg.chat.id, userId, 'Contract address cannot be empty.', this.getAdminBackOptions());
+        return;
+      }
+
+      // Basic validation for contract address format
+      const isValidCA = pending.chain === 'evm'
+        ? /^0x[a-fA-F0-9]{40}$/i.test(tokenCA)
+        : /^[1-9A-HJ-NP-Z]{43,44}$/i.test(tokenCA); // Solana base58
+
+      if (!isValidCA) {
+        const format = pending.chain === 'evm'
+          ? 'EVM contract addresses should start with 0x and be 42 characters'
+          : 'Solana addresses should be 43-44 base58 characters';
+        await this.renderAdminCard(msg.chat.id, userId, `Invalid contract address format. ${format}.`, this.getAdminBackOptions());
+        return;
+      }
+
+      this.pendingByUser.set(userId, {
+        type: 'create_raffle_reward_token',
+        chatId: pending.chatId,
+        title: pending.title,
+        winnerCount: pending.winnerCount,
+        allEntrantsWin: pending.allEntrantsWin,
+        chain: pending.chain,
+        durationHours: pending.durationHours,
+        tokenCA,
+      });
+      await this.renderAdminCard(
+        msg.chat.id,
+        userId,
+        `➕ *Create Raffle*\n\nStep 6/7 — What is the name/symbol of the token? (example: USDC)`,
         this.getAdminBackOptions({ parse_mode: 'Markdown' })
       );
       return;
@@ -2754,11 +2855,12 @@ export class RaffleBot {
         chain: pending.chain,
         durationHours: pending.durationHours,
         rewardToken,
+        tokenCA: (pending as any).tokenCA,
       });
       await this.renderAdminCard(
         msg.chat.id,
         userId,
-        `➕ *Create Raffle*\n\nStep 6/6 — How much *${rewardToken}* total will be distributed? Send a positive number (example: 1000).`,
+        `➕ *Create Raffle*\n\nStep 7/7 — How much *${rewardToken}* total will be distributed? Send a positive number (example: 1000).`,
         this.getAdminBackOptions({ parse_mode: 'Markdown' })
       );
       return;
