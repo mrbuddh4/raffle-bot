@@ -58,40 +58,28 @@ export class PayoutService {
     }
 
     try {
-      console.log(`[PayoutService] Input length: ${secretRaw.length} chars, first 20: ${secretRaw.slice(0, 20)}`);
       const secret = this.parseSecretKey(secretRaw);
-      console.log(`[PayoutService] ✅ Parsed to ${secret.length} bytes, first 8 bytes: ${Array.from(secret.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
       
       let payer: Keypair;
-      let method = 'unknown';
       
-      // Try both methods with detailed error logging
+      // Try both methods
       if (secret.length === 32) {
         try {
           payer = Keypair.fromSeed(secret);
-          method = 'fromSeed(32)';
-          console.log(`[PayoutService] ✅ Using Keypair.fromSeed(32 bytes)`);
         } catch (seedError: any) {
-          console.log(`[PayoutService] ⚠️  fromSeed failed: ${seedError?.message}, trying fromSecretKey...`);
           payer = Keypair.fromSecretKey(secret);
-          method = 'fromSecretKey(32)';
         }
       } else if (secret.length === 64) {
         try {
           payer = Keypair.fromSecretKey(secret);
-          method = 'fromSecretKey(64)';
-          console.log(`[PayoutService] ✅ Using Keypair.fromSecretKey(64 bytes)`);
         } catch (keyError: any) {
-          console.log(`[PayoutService] ⚠️  fromSecretKey failed: ${keyError?.message}, trying fromSeed(first 32)...`);
           payer = Keypair.fromSeed(secret.slice(0, 32));
-          method = 'fromSeed(first 32 of 64)';
         }
       } else {
         throw new Error(`Unexpected key length: ${secret.length} bytes. Expected 32 or 64.`);
       }
       
       const pubkey = payer.publicKey.toBase58();
-      console.log(`[PayoutService] ✅ SUCCESS - Method: ${method}, Derived: ${pubkey}`);
       return pubkey;
     } catch (error: any) {
       const msg = typeof error?.message === 'string' ? error.message : 'Unknown error';
@@ -144,7 +132,6 @@ export class PayoutService {
     try {
       payer = secret.length === 32 ? Keypair.fromSeed(secret) : Keypair.fromSecretKey(secret);
     } catch (err1: any) {
-      console.log(`[PayoutService] First attempt failed, trying alternate method...`);
       try {
         payer = secret.length === 32 ? Keypair.fromSecretKey(secret) : Keypair.fromSeed(secret.slice(0, 32));
       } catch (err2: any) {
@@ -218,30 +205,21 @@ export class PayoutService {
     }
 
     const secret = this.parseSecretKey(secretRaw);
-    console.log(`[PayoutService.payoutSolanaToken] Decoded secret: ${secret.length} bytes`);
     
     let payer: Keypair;
-    let method = '';
     try {
       if (secret.length === 32) {
         payer = Keypair.fromSeed(secret);
-        method = 'fromSeed(32)';
       } else {
         payer = Keypair.fromSecretKey(secret);
-        method = 'fromSecretKey(64)';
       }
-      console.log(`[PayoutService.payoutSolanaToken] ✅ Keypair derived via ${method}: ${payer.publicKey.toBase58()}`);
     } catch (err1: any) {
-      console.log(`[PayoutService.payoutSolanaToken] First attempt (${method}) failed: ${err1?.message}, trying alternate...`);
       try {
         if (secret.length === 32) {
           payer = Keypair.fromSecretKey(secret);
-          method = 'fromSecretKey(32)';
         } else {
           payer = Keypair.fromSeed(secret.slice(0, 32));
-          method = 'fromSeed(slice(0,32))';
         }
-        console.log(`[PayoutService.payoutSolanaToken] ✅ Keypair derived via ${method}: ${payer.publicKey.toBase58()}`);
       } catch (err2: any) {
         throw new Error(`Failed all keypair methods: ${err1?.message}, ${err2?.message}`);
       }
@@ -250,8 +228,6 @@ export class PayoutService {
     const connection = new Connection(rpcUrl, 'confirmed');
 
     const mintPubkey = new PublicKey(tokenMintAddress);
-    console.log(`[PayoutService.payoutSolanaToken] 🪙 Token mint address: ${tokenMintAddress}`);
-    console.log(`[PayoutService.payoutSolanaToken] 🔍 Checking account on-chain...`);
     
     // First, check if the account exists at all
     const accountInfo = await connection.getAccountInfo(mintPubkey);
@@ -261,12 +237,9 @@ export class PayoutService {
       throw err;
     }
     
-    console.log(`[PayoutService.payoutSolanaToken] ✅ Account exists. Owner: ${accountInfo.owner.toBase58()}, Data length: ${accountInfo.data.length}`);
-    
     // Determine which token program this is
     let tokenProgramId = TOKEN_PROGRAM_ID;
     if (accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)) {
-      console.log(`[PayoutService.payoutSolanaToken] 🔄 Detected Token 2022 Program (newer standard)`);
       tokenProgramId = TOKEN_2022_PROGRAM_ID;
     } else if (!accountInfo.owner.equals(TOKEN_PROGRAM_ID)) {
       console.warn(`[PayoutService.payoutSolanaToken] ⚠️ Account owner is neither Token Program nor Token 2022 Program`);
@@ -275,7 +248,6 @@ export class PayoutService {
     let mintInfo;
     try {
       mintInfo = await getMint(connection, mintPubkey, undefined, tokenProgramId);
-      console.log(`[PayoutService.payoutSolanaToken] ✅ Mint info retrieved. Decimals: ${mintInfo.decimals}`);
     } catch (mintErr: any) {
       console.error(`[PayoutService.payoutSolanaToken] ❌ Failed to parse as token mint`);
       console.error(`Error type: ${mintErr?.name}`);
@@ -327,7 +299,6 @@ export class PayoutService {
       );
 
       try {
-        console.log(`[PayoutService.payoutSolanaToken] 📤 Sending token transfer to ${target.walletAddress}...`);
         const signature = await connection.sendTransaction(tx, [payer]);
         await connection.confirmTransaction(signature, 'confirmed');
 
@@ -336,12 +307,8 @@ export class PayoutService {
           walletAddress: target.walletAddress,
           txHash: signature,
         });
-        console.log(`[PayoutService.payoutSolanaToken] ✅ Token transfer successful: ${signature}`);
       } catch (txErr: any) {
-        console.error(`[PayoutService.payoutSolanaToken] ❌ Token transfer failed for ${target.walletAddress}`);
-        console.error(`Error name: ${txErr?.name}`);
-        console.error(`Error message: ${txErr?.message}`);
-        console.error(`Full error:`, txErr);
+        console.error(`[PayoutService.payoutSolanaToken] ❌ Token transfer failed for ${target.walletAddress}: ${txErr?.message}`);
         throw txErr;
       }
     }
