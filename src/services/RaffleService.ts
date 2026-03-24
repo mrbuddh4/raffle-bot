@@ -14,6 +14,7 @@ export interface Raffle {
   nextHourlyAlertAt: Date | null;
   rewardToken: string | null;
   rewardTotalAmount: number | null;
+  tokenCA?: string | null;
 }
 
 export interface WinnerResult {
@@ -62,7 +63,8 @@ export class RaffleService {
     announcementChatId: number,
     durationHours: number,
     rewardToken: string,
-    rewardTotalAmount: number
+    rewardTotalAmount: number,
+    tokenCA?: string
   ): Promise<Raffle> {
     await this.pool.query(
       `
@@ -89,7 +91,8 @@ export class RaffleService {
         next_hourly_alert_at,
         alerts_sent_count,
         reward_token,
-        reward_total_amount
+        reward_total_amount,
+        token_ca
       )
       VALUES (
         $1,
@@ -104,11 +107,12 @@ export class RaffleService {
         NOW() + make_interval(secs => GREATEST(60, ($7 * 3600.0 / 6)::int)),
         0,
         $8,
-        $9
+        $9,
+        $10
       )
-      RETURNING id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
+      RETURNING id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount, token_ca
       `,
-      [title, winnerCount, chain, createdBy, announcementChatId, allEntrantsWin, durationHours, rewardToken, rewardTotalAmount]
+      [title, winnerCount, chain, createdBy, announcementChatId, allEntrantsWin, durationHours, rewardToken, rewardTotalAmount, tokenCA || null]
     );
 
     return this.mapRaffle(result.rows[0]);
@@ -632,6 +636,7 @@ export class RaffleService {
       nextHourlyAlertAt: row.next_hourly_alert_at ? new Date(row.next_hourly_alert_at) : null,
       rewardToken: row.reward_token ?? null,
       rewardTotalAmount: row.reward_total_amount != null ? Number(row.reward_total_amount) : null,
+      tokenCA: row.token_ca ?? null,
     };
   }
 }

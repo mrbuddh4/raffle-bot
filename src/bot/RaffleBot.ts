@@ -5,7 +5,7 @@ import path from 'path';
 import { Pool } from 'pg';
 import { RaffleService } from '../services/RaffleService';
 import { UserService } from '../services/UserService';
-import { PayoutService } from '../services/PayoutService';
+import { PayoutService, PayoutResult } from '../services/PayoutService';
 import { AdminPayoutWalletService } from '../services/AdminPayoutWalletService';
 import { PayrollGroupService } from '../services/PayrollGroupService';
 import { GroupChatService } from '../services/GroupChatService';
@@ -2883,7 +2883,8 @@ export class RaffleBot {
           pending.chatId,
           pending.durationHours,
           pending.rewardToken,
-          rewardTotalAmount
+          rewardTotalAmount,
+          (pending as any).tokenCA
         );
         this.pendingByUser.delete(userId);
         await this.renderAdminCard(
@@ -3218,22 +3219,12 @@ export class RaffleBot {
   }
 
   private async runAutomaticPayoutForRaffle(
-    raffle: { id: number; title: string; chain: WalletChain; createdBy: number; rewardTotalAmount: number | null },
+    raffle: { id: number; title: string; chain: WalletChain; createdBy: number; rewardTotalAmount: number | null; tokenCA?: string | null },
     winners: Array<{ rank: number; walletAddress: string; walletChain: WalletChain }>
   ): Promise<Map<number, { txHash: string }>> {
     const payoutByRank = new Map<number, { txHash: string }>();
 
     if (!raffle.rewardTotalAmount || winners.length === 0) {
-      return payoutByRank;
-    }
-
-    const signer = await this.adminPayoutWalletService.getWallet(raffle.createdBy, raffle.chain, 'native');
-    if (!signer) {
-      await this.bot.sendMessage(
-        raffle.createdBy,
-        `⚠️ Auto payout skipped for *${raffle.title}*: no native payout signer configured for *${getChainDisplayName(raffle.chain)}*.`,
-        { parse_mode: 'Markdown' }
-      );
       return payoutByRank;
     }
 
@@ -3247,13 +3238,40 @@ export class RaffleBot {
       return payoutByRank;
     }
 
-    try {
-      const results = await this.payoutService.payoutNative(
-        raffle.chain,
-        amountPerWinner,
-        winners.map((winner) => ({ rank: winner.rank, walletAddress: winner.walletAddress })),
-        signer.secret
+    // Check if this is a custom token or native
+    const isCustomToken = !!raffle.tokenCA;
+    const payoutMode = isCustomToken ? 'token' : 'native';
+
+    const signer = await this.adminPayoutWalletService.getWallet(raffle.createdBy, raffle.chain, payoutMode);
+    if (!signer) {
+      const modeText = isCustomToken ? 'custom token' : 'native';
+      await this.bot.sendMessage(
+        raffle.createdBy,
+        `⚠️ Auto payout skipped for *${raffle.title}*: no ${modeText} payout signer configured for *${getChainDisplayName(raffle.chain)}*.`,
+        { parse_mode: 'Markdown' }
       );
+      return payoutByRank;
+    }
+
+    try {
+      let results: PayoutResult[];
+      
+      if (isCustomToken && raffle.tokenCA) {
+        results = await this.payoutService.payoutToken(
+          raffle.chain,
+          raffle.tokenCA,
+          amountPerWinner,
+          winners.map((winner) => ({ rank: winner.rank, walletAddress: winner.walletAddress })),
+          signer.secret
+        );
+      } else {
+        results = await this.payoutService.payoutNative(
+          raffle.chain,
+          amountPerWinner,
+          winners.map((winner) => ({ rank: winner.rank, walletAddress: winner.walletAddress })),
+          signer.secret
+        );
+      }
 
       for (const result of results) {
         await this.raffleService.markWinnerPaid(raffle.id, result.rank, result.txHash);
