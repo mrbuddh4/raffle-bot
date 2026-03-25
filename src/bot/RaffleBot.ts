@@ -3469,11 +3469,11 @@ export class RaffleBot {
 
     // Send header + first batch of winners
     const firstMessage = header + '\n' + messages[0];
-    await this.bot.sendMessage(raffle.createdBy, firstMessage, this.getAdminBackOptions({ parse_mode: 'Markdown' }));
+    await this.bot.sendMessage(raffle.createdBy, firstMessage, { ...this.getAdminBackOptions({ parse_mode: 'Markdown' }), parse_mode: 'Markdown' });
 
     // Send remaining batches
     for (let i = 1; i < messages.length; i++) {
-      await this.bot.sendMessage(raffle.createdBy, messages[i], this.getAdminBackOptions({ parse_mode: 'Markdown' }));
+      await this.bot.sendMessage(raffle.createdBy, messages[i], { ...this.getAdminBackOptions({}), parse_mode: 'Markdown' });
     }
 
     // Announce to group chats
