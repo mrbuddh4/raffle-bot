@@ -2786,13 +2786,13 @@ export class RaffleBot {
       await this.renderAdminCard(
         msg.chat.id,
         userId,
-        '➕ *Create Raffle*\n\nStep 5/7 — What type of token will be dropped?',
+        '➕ *Create Raffle*\n\nStep 5/7 — What type of token will be dropped?\n\n💡 *Custom Token* supports any ERC20 token, including Sidiora.fun-launched tokens.',
         {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
               [{ text: '💰 Native Token', callback_data: 'admin:create_raffle_reward_type:native' }],
-              [{ text: '🪙 Custom Token', callback_data: 'admin:create_raffle_reward_type:custom' }],
+              [{ text: '🪙 Custom Token (ERC20)', callback_data: 'admin:create_raffle_reward_type:custom' }],
             ],
           },
         }
@@ -2833,7 +2833,7 @@ export class RaffleBot {
       await this.renderAdminCard(
         msg.chat.id,
         userId,
-        `➕ *Create Raffle*\n\nStep 6/7 — What is the name/symbol of the token? (example: USDC)`,
+        `➕ *Create Raffle*\n\nStep 6/7 — What is the name/symbol of the token? (example: USDC)\n\n💡 Works with any ERC20 token including Sidiora.fun launches.`,
         this.getAdminBackOptions({ parse_mode: 'Markdown' })
       );
       return;

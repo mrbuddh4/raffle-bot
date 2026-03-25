@@ -15,6 +15,7 @@ A Telegram bot for running raffles with PostgreSQL-backed registration data.
 - Per-admin payout signer configuration (each admin can set their own payout wallet by chain/mode).
 - Payout tracking (`pending` / `paid` + tx hash).
 - Optional on-chain payout execution for native coins and tokens (ERC-20 + SPL).
+- **Sidiora.fun token support** — Any Sidiora.fun-launched token can be used as a raffle reward. See [SIDIORA_TOKENS.md](./SIDIORA_TOKENS.md) for details.
 - Timed raffle lifecycle alerts in group chat (go-live, hourly countdown reminders, and close/winner announcement).
 - Group onboarding: when added to a group, the bot posts usage instructions.
 - Group-safe UX: profile/wallet registration and edits are DM-only for privacy.
