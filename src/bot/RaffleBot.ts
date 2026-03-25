@@ -464,7 +464,7 @@ export class RaffleBot {
       [
         '👤 *Profile Editor*',
         notice ? `${notice}` : null,
-        `Username: *${user.displayUsername}*`,
+        `Username: *${this.getUserMention(user)}*`,
         `Paxeer Network Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
         `Solana Wallet: ${user.solanaWalletAddress ? `\`${user.solanaWalletAddress}\`` : '_not set_'}`,
         '',
@@ -616,7 +616,7 @@ export class RaffleBot {
       await this.bot.sendMessage(msg.chat.id, 'Please register first with /register.');
       return;
     }
-    const actorName = user.displayUsername;
+    const actorName = this.getUserMention(user);
 
     let eligibleRaffles = openRaffles.filter((raffle) => Boolean(this.getUserWalletForChain(user, raffle.chain)));
     if (eligibleRaffles.length === 0) {
@@ -2175,7 +2175,7 @@ export class RaffleBot {
         return;
       }
 
-      const rankButtons = winners.map((winner) => ([{ text: `#${winner.rank} ${winner.displayUsername}`, callback_data: `admin:mark_paid_rank:${raffleId}:${winner.rank}` }]));
+      const rankButtons = winners.map((winner) => ([{ text: `#${winner.rank} ${this.getUserMention(winner)}`, callback_data: `admin:mark_paid_rank:${raffleId}:${winner.rank}` }]));
       await this.renderAdminCard(chatId, userId, 'Select winner rank to mark as paid:', {
         reply_markup: {
           inline_keyboard: [...rankButtons, [{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }]],
@@ -3205,7 +3205,7 @@ export class RaffleBot {
 
     const autoPayoutByRank = await this.runAutomaticPayoutForRaffle(raffle, winners);
     const winnerLines = winners.map((winner) => {
-      const mention = winner.telegramUsername ? `@${winner.telegramUsername}` : winner.displayUsername;
+      const mention = this.getUserMention(winner);
       const payout = autoPayoutByRank.get(winner.rank);
       if (!payout) {
         return `${winner.rank}. ${mention}`;
@@ -3681,7 +3681,7 @@ export class RaffleBot {
       return;
     }
 
-    const lines = winners.map((winner) => `${winner.rank},${winner.displayUsername},${winner.walletChain},${winner.walletAddress}`);
+    const lines = winners.map((winner) => `${winner.rank},${this.getUserMention(winner)},${winner.walletChain},${winner.walletAddress}`);
     const csv = ['rank,username,chain,wallet_address', ...lines].join('\n');
 
     await this.renderAdminCard(
@@ -4052,7 +4052,7 @@ export class RaffleBot {
       '',
       user
         ? [
-            `✅ Registered as *${user.displayUsername}*`,
+            `✅ Registered as *${this.getUserMention(user)}*`,
             `Paxeer Network Wallet: ${user.evmWalletAddress ? `\`${user.evmWalletAddress}\`` : '_not set_'}`,
             `Solana Wallet: ${user.solanaWalletAddress ? `\`${user.solanaWalletAddress}\`` : '_not set_'}`,
           ].join('\n')
@@ -4268,6 +4268,10 @@ export class RaffleBot {
         inline_keyboard: [[{ text: '⬅️ Back to Admin Panel', callback_data: 'admin:open_panel' }]],
       },
     };
+  }
+
+  private getUserMention(user: { telegramUsername?: string | null; displayUsername: string }): string {
+    return user.telegramUsername ? `@${user.telegramUsername}` : user.displayUsername;
   }
 
   private async delay(ms: number): Promise<void> {
