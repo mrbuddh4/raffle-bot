@@ -3401,16 +3401,29 @@ export class RaffleBot {
       return;
     }
 
-    if (goLiveVideoPath) {
+    let videoStreamPath = goLiveVideoPath;
+    // Validate video file can be read before attempting to send
+    if (videoStreamPath) {
+      try {
+        await fs.promises.access(videoStreamPath, fs.constants.R_OK);
+      } catch (error: any) {
+        console.warn(`Video file not accessible at ${videoStreamPath}, falling back to image/text`, error.message);
+        videoStreamPath = null;
+      }
+    }
+
+    if (videoStreamPath) {
       await Promise.all(targetChatIds.map(async (targetChatId) => {
         try {
-          await this.bot.sendVideo(targetChatId, fs.createReadStream(goLiveVideoPath), {
+          await this.bot.sendVideo(targetChatId, fs.createReadStream(videoStreamPath!), {
             caption,
             parse_mode: 'Markdown',
             reply_markup: goLiveReplyMarkup,
           });
         } catch (error: any) {
-          await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
+          console.warn(`Failed to send video to ${targetChatId}, falling back to image/text`, error.message);
+          // Don't deactivate on video send failure - try fallback instead
+          await this.sendPhotoOrTextAnnouncement(targetChatId, caption, goLiveReplyMarkup, artworkUrl);
         }
       }));
       return;
@@ -3441,6 +3454,36 @@ export class RaffleBot {
         await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
       }
     }));
+  }
+
+  private async sendPhotoOrTextAnnouncement(
+    chatId: number,
+    caption: string,
+    replyMarkup: any,
+    artworkUrl?: string
+  ): Promise<void> {
+    try {
+      if (artworkUrl) {
+        try {
+          await this.bot.sendPhoto(chatId, artworkUrl, {
+            caption,
+            parse_mode: 'Markdown',
+            reply_markup: replyMarkup,
+          });
+          return;
+        } catch (photoError) {
+          console.warn(`Failed to send photo, falling back to text`, photoError);
+        }
+      }
+
+      // Final fallback: send as text only
+      await this.bot.sendMessage(chatId, caption, {
+        parse_mode: 'Markdown',
+        reply_markup: replyMarkup,
+      });
+    } catch (error: any) {
+      await this.maybeDeactivateGroupChatOnSendFailure(chatId, error);
+    }
   }
 
   private async sendRaffleClosedAnnouncement(
