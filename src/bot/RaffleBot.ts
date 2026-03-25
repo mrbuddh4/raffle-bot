@@ -3185,37 +3185,50 @@ export class RaffleBot {
   private async maybeAutoDrawRaffle(raffleId: number, forceAtEnd = false): Promise<void> {
     const raffle = await this.raffleService.getRaffleById(raffleId);
     if (!raffle || raffle.status !== 'open') {
+      console.log(`[DEBUG] maybeAutoDrawRaffle: Skipping raffle ${raffleId} - not found or not open`);
       return;
     }
 
     if (!forceAtEnd) {
+      console.log(`[DEBUG] maybeAutoDrawRaffle: Skipping raffle ${raffleId} - forceAtEnd is false`);
       return;
     }
 
+    console.log(`[DEBUG] maybeAutoDrawRaffle: Starting raffle ${raffleId} (${raffle.title})`);
+
     const claimed = await this.raffleService.claimOpenRaffleForDrawing(raffle.id);
     if (!claimed) {
+      console.log(`[DEBUG] maybeAutoDrawRaffle: Could not claim raffle ${raffleId} for drawing`);
       return;
     }
 
     const winners = await this.raffleService.drawWinners(raffle.id);
+    console.log(`[DEBUG] maybeAutoDrawRaffle: Drew ${winners.length} winners for raffle ${raffleId}`);
     if (winners.length === 0) {
       await this.sendRaffleClosedAnnouncement(raffle, 'No eligible winners this round.');
       return;
     }
 
+    console.log(`[DEBUG] Starting auto-payout for raffle ${raffleId}`);
     const autoPayoutByRank = await this.runAutomaticPayoutForRaffle(raffle, winners);
+    console.log(`[DEBUG] Auto-payout complete: ${autoPayoutByRank.size} winners paid`);
+    
     const winnerLines = winners.map((winner) => {
       const mention = this.getUserMention(winner);
       const payout = autoPayoutByRank.get(winner.rank);
       if (!payout) {
+        console.log(`[DEBUG] Winner ${winner.rank} (${mention}): No payout transaction`);
         return `${winner.rank}. ${mention}`;
       }
 
       const txUrl = this.getTransactionExplorerUrl(winner.walletChain, payout.txHash);
+      console.log(`[DEBUG] Winner ${winner.rank} (${mention}): Tx ${payout.txHash}`);
       return `${winner.rank}. ${mention}\n[Tx](${txUrl})`;
     }).join('\n\n');
 
+    console.log(`[DEBUG] Sending raffle closed announcement for ${raffle.title}`);
     await this.sendRaffleClosedAnnouncement(raffle, winnerLines);
+    console.log(`[DEBUG] Raffle closed announcement sent for ${raffle.title}`);
   }
 
   private async runAutomaticPayoutForRaffle(
@@ -3225,11 +3238,13 @@ export class RaffleBot {
     const payoutByRank = new Map<number, { txHash: string }>();
 
     if (!raffle.rewardTotalAmount || winners.length === 0) {
+      console.log(`[DEBUG] Auto-payout skipped: no reward amount or no winners`);
       return payoutByRank;
     }
 
     const amountPerWinner = raffle.rewardTotalAmount / winners.length;
     if (!Number.isFinite(amountPerWinner) || amountPerWinner <= 0) {
+      console.warn(`[DEBUG] Auto-payout skipped: invalid reward amount - ${raffle.rewardTotalAmount} / ${winners.length}`);
       await this.bot.sendMessage(
         raffle.createdBy,
         `⚠️ Auto payout skipped for *${raffle.title}*: invalid reward amount configured.`,
@@ -3242,9 +3257,12 @@ export class RaffleBot {
     const isCustomToken = !!raffle.tokenCA;
     const payoutMode = isCustomToken ? 'token' : 'native';
 
+    console.log(`[DEBUG] Auto-payout: ${raffle.title} - ${payoutMode} mode, ${amountPerWinner} per winner`);
+
     const signer = await this.adminPayoutWalletService.getWallet(raffle.createdBy, raffle.chain, payoutMode);
     if (!signer) {
       const modeText = isCustomToken ? 'custom token' : 'native';
+      console.warn(`[DEBUG] Auto-payout skipped: no ${modeText} signer configured for ${raffle.chain}`);
       await this.bot.sendMessage(
         raffle.createdBy,
         `⚠️ Auto payout skipped for *${raffle.title}*: no ${modeText} payout signer configured for *${getChainDisplayName(raffle.chain)}*.`,
@@ -3257,6 +3275,7 @@ export class RaffleBot {
       let results: PayoutResult[];
       
       if (isCustomToken && raffle.tokenCA) {
+        console.log(`[DEBUG] Executing token payout: ${raffle.tokenCA}`);
         results = await this.payoutService.payoutToken(
           raffle.chain,
           raffle.tokenCA,
@@ -3265,6 +3284,7 @@ export class RaffleBot {
           signer.secret
         );
       } else {
+        console.log(`[DEBUG] Executing native payout: ${raffle.chain}`);
         results = await this.payoutService.payoutNative(
           raffle.chain,
           amountPerWinner,
@@ -3273,10 +3293,15 @@ export class RaffleBot {
         );
       }
 
+      console.log(`[DEBUG] Payout service returned ${results.length} results`);
+
       for (const result of results) {
         await this.raffleService.markWinnerPaid(raffle.id, result.rank, result.txHash);
         payoutByRank.set(result.rank, { txHash: result.txHash });
+        console.log(`[DEBUG] Stored tx for rank ${result.rank}: ${result.txHash}`);
       }
+
+      console.log(`[DEBUG] Auto-payout complete: ${payoutByRank.size} winners stored`);
     } catch (error: any) {
       console.error(`[RaffleBot] ❌ Auto payout error:`, error);
       const errorMsg = error?.message || error?.toString?.() || 'unknown error';
@@ -3405,9 +3430,28 @@ export class RaffleBot {
     // Validate video file can be read before attempting to send
     if (videoStreamPath) {
       try {
-        await fs.promises.access(videoStreamPath, fs.constants.R_OK);
+        const stats = await fs.promises.stat(videoStreamPath);
+        
+        // Additional check: file must be readable and a regular file
+        if (!stats.isFile()) {
+          throw new Error('Not a regular file');
+        }
+        
+        // Try to open a read stream to verify it's actually readable
+        const testStream = fs.createReadStream(videoStreamPath, { start: 0, end: 0 });
+        await new Promise((resolve, reject) => {
+          testStream.on('open', () => {
+            testStream.destroy();
+            resolve(true);
+          });
+          testStream.on('error', reject);
+          // Timeout after 1 second
+          setTimeout(() => reject(new Error('Stream timeout')), 1000);
+        });
+        
+        console.log(`✅ Video file validated: ${videoStreamPath} (${stats.size} bytes)`);
       } catch (error: any) {
-        console.warn(`Video file not accessible at ${videoStreamPath}, falling back to image/text`, error.message);
+        console.warn(`❌ Video file not readable at ${videoStreamPath}: ${error.message}`);
         videoStreamPath = null;
       }
     }
@@ -3415,13 +3459,15 @@ export class RaffleBot {
     if (videoStreamPath) {
       await Promise.all(targetChatIds.map(async (targetChatId) => {
         try {
+          console.log(`📹 Sending video to chat ${targetChatId} from ${videoStreamPath}`);
           await this.bot.sendVideo(targetChatId, fs.createReadStream(videoStreamPath!), {
             caption,
             parse_mode: 'Markdown',
             reply_markup: goLiveReplyMarkup,
           });
+          console.log(`✅ Video sent successfully to ${targetChatId}`);
         } catch (error: any) {
-          console.warn(`Failed to send video to ${targetChatId}, falling back to image/text`, error.message);
+          console.warn(`❌ Failed to send video to ${targetChatId}: ${error.message}, falling back to image/text`);
           // Don't deactivate on video send failure - try fallback instead
           await this.sendPhotoOrTextAnnouncement(targetChatId, caption, goLiveReplyMarkup, artworkUrl);
         }
@@ -3490,49 +3536,65 @@ export class RaffleBot {
     raffle: { createdBy: number; announcementChatId: number | null; title: string; chain: WalletChain },
     winnerLines: string
   ): Promise<void> {
-    const header = `🏁 ${raffle.title} is closed.\n\n🎉 WINNER WINNER 🎉`;
-    const maxMessageLength = 4096;
-    const maxContentLength = maxMessageLength - header.length - 20; // Leave buffer
-    
-    // Split winners into chunks that fit within message limit
-    const messages: string[] = [];
-    let currentMessage = '';
-    
-    for (const line of winnerLines.split('\n\n')) {
-      if ((currentMessage + line + '\n\n').length > maxContentLength && currentMessage) {
-        messages.push(currentMessage);
-        currentMessage = line;
-      } else {
-        currentMessage = currentMessage ? currentMessage + '\n\n' + line : line;
-      }
-    }
-    if (currentMessage) {
-      messages.push(currentMessage);
-    }
-
-    // Send header + first batch of winners
-    const firstMessage = header + '\n' + messages[0];
-    await this.bot.sendMessage(raffle.createdBy, firstMessage, { ...this.getAdminBackOptions({ parse_mode: 'Markdown' }), parse_mode: 'Markdown' });
-
-    // Send remaining batches
-    for (let i = 1; i < messages.length; i++) {
-      await this.bot.sendMessage(raffle.createdBy, messages[i], { ...this.getAdminBackOptions({}), parse_mode: 'Markdown' });
-    }
-
-    // Announce to group chats
-    const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
-    await Promise.all(targetChatIds.map(async (targetChatId) => {
-      try {
-        const firstGroupMessage = header + '\n' + messages[0];
-        await this.bot.sendMessage(targetChatId, firstGroupMessage, { parse_mode: 'Markdown' });
-        
-        for (let i = 1; i < messages.length; i++) {
-          await this.bot.sendMessage(targetChatId, messages[i], { parse_mode: 'Markdown' });
+    try {
+      const header = `🏁 ${raffle.title} is closed.\n\n🎉 WINNER WINNER 🎉`;
+      const maxMessageLength = 4096;
+      const maxContentLength = maxMessageLength - header.length - 20; // Leave buffer
+      
+      // Split winners into chunks that fit within message limit
+      const messages: string[] = [];
+      let currentMessage = '';
+      
+      for (const line of winnerLines.split('\n\n')) {
+        if ((currentMessage + line + '\n\n').length > maxContentLength && currentMessage) {
+          messages.push(currentMessage);
+          currentMessage = line;
+        } else {
+          currentMessage = currentMessage ? currentMessage + '\n\n' + line : line;
         }
-      } catch (error: any) {
-        await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
       }
-    }));
+      if (currentMessage) {
+        messages.push(currentMessage);
+      }
+
+      console.log(`[DEBUG] sendRaffleClosedAnnouncement: ${messages.length} message(s) to send for ${raffle.title}`);
+
+      // Send header + first batch of winners
+      const firstMessage = header + '\n' + messages[0];
+      console.log(`[DEBUG] Sending admin message for ${raffle.title}`);
+      await this.bot.sendMessage(raffle.createdBy, firstMessage, { ...this.getAdminBackOptions({ parse_mode: 'Markdown' }), parse_mode: 'Markdown' });
+      console.log(`[DEBUG] Admin message sent successfully`);
+
+      // Send remaining batches
+      for (let i = 1; i < messages.length; i++) {
+        console.log(`[DEBUG] Sending admin message batch ${i + 1}`);
+        await this.bot.sendMessage(raffle.createdBy, messages[i], { ...this.getAdminBackOptions({}), parse_mode: 'Markdown' });
+      }
+
+      // Announce to group chats
+      const targetChatIds = await this.getAlertTargetChatIds(raffle.announcementChatId);
+      console.log(`[DEBUG] Broadcasting to ${targetChatIds.length} group chat(s)`);
+      
+      await Promise.all(targetChatIds.map(async (targetChatId) => {
+        try {
+          console.log(`[DEBUG] Sending group message to chat ${targetChatId}`);
+          const firstGroupMessage = header + '\n' + messages[0];
+          await this.bot.sendMessage(targetChatId, firstGroupMessage, { parse_mode: 'Markdown' });
+          console.log(`[DEBUG] Group message sent successfully to ${targetChatId}`);
+          
+          for (let i = 1; i < messages.length; i++) {
+            await this.bot.sendMessage(targetChatId, messages[i], { parse_mode: 'Markdown' });
+          }
+        } catch (error: any) {
+          console.error(`[DEBUG] Failed to send group message to ${targetChatId}: ${error.message}`);
+          await this.maybeDeactivateGroupChatOnSendFailure(targetChatId, error);
+        }
+      }));
+      console.log(`[DEBUG] sendRaffleClosedAnnouncement complete for ${raffle.title}`);
+    } catch (error: any) {
+      console.error(`[ERROR] sendRaffleClosedAnnouncement failed: ${error.message}`, error);
+      throw error;
+    }
   }
 
   private getRegisterLink(): string | null {
@@ -3655,19 +3717,33 @@ export class RaffleBot {
 
   private getEnterCardVideoPath(): string | null {
     const configuredPath = process.env.ENTER_CARD_VIDEO_PATH?.trim();
+    
+    // If explicitly configured, use that path as-is (assumes Railway volume or proper setup)
+    if (configuredPath) {
+      console.log(`Using configured video path: ${configuredPath}`);
+      return configuredPath;
+    }
+    
+    // Otherwise try relative to CWD
     const candidates = [
-      configuredPath,
       'assets/enter-card.MP4',
       'assets/enter-card.mp4',
-    ].filter((item): item is string => Boolean(item));
+    ];
 
     for (const candidate of candidates) {
-      const absolutePath = path.isAbsolute(candidate) ? candidate : path.resolve(process.cwd(), candidate);
-      if (fs.existsSync(absolutePath)) {
-        return absolutePath;
+      try {
+        const absolutePath = path.isAbsolute(candidate) ? candidate : path.resolve(process.cwd(), candidate);
+        // Use existsSync as a quick check, but we'll validate later with async access
+        if (fs.existsSync(absolutePath)) {
+          console.log(`Found video file candidate: ${absolutePath}`);
+          return absolutePath;
+        }
+      } catch (error) {
+        console.warn(`Error checking candidate path ${candidate}:`, error);
       }
     }
 
+    console.warn('No video file found in candidates, will fall back to image/text announcements');
     return null;
   }
 
