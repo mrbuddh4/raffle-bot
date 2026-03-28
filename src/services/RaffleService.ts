@@ -121,7 +121,7 @@ export class RaffleService {
   async getActiveRaffle(): Promise<Raffle | null> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount, token_ca
       FROM raffles
       WHERE status IN ('created', 'open', 'drawing')
       ORDER BY id DESC
@@ -139,7 +139,7 @@ export class RaffleService {
   async getRaffleById(raffleId: number): Promise<Raffle | null> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount, token_ca
       FROM raffles
       WHERE id = $1
       LIMIT 1
@@ -171,7 +171,7 @@ export class RaffleService {
   async getActiveRaffleByCreator(createdBy: number): Promise<Raffle | null> {
     const result = await this.pool.query(
       `
-      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount
+      SELECT id, title, winner_count, chain, status, created_by, announcement_chat_id, all_entrants_win, ends_at, next_hourly_alert_at, reward_token, reward_total_amount, token_ca
       FROM raffles
       WHERE status IN ('created', 'open', 'drawing')
         AND created_by = $1
