@@ -3210,7 +3210,9 @@ export class RaffleBot {
     }
 
     console.log(`[DEBUG] Starting auto-payout for raffle ${raffleId}`);
-    const autoPayoutByRank = await this.runAutomaticPayoutForRaffle(raffle, winners);
+    const payoutResult = await this.runAutomaticPayoutForRaffle(raffle, winners);
+    const autoPayoutByRank = payoutResult.results;
+    const payoutFailed = payoutResult.failed;
     console.log(`[DEBUG] Auto-payout complete: ${autoPayoutByRank.size} winners paid`);
     
     const winnerLines = winners.map((winner) => {
@@ -3218,7 +3220,7 @@ export class RaffleBot {
       const payout = autoPayoutByRank.get(winner.rank);
       if (!payout) {
         console.log(`[DEBUG] Winner ${winner.rank} (${mention}): No payout transaction`);
-        return `${winner.rank}. ${mention}`;
+        return `${winner.rank}. ${mention}${payoutFailed ? ' ⏳ (payment pending)' : ''}`;
       }
 
       const txUrl = this.getTransactionExplorerUrl(winner.walletChain, payout.txHash);
@@ -3234,12 +3236,12 @@ export class RaffleBot {
   private async runAutomaticPayoutForRaffle(
     raffle: { id: number; title: string; chain: WalletChain; createdBy: number; rewardTotalAmount: number | null; tokenCA?: string | null },
     winners: Array<{ rank: number; walletAddress: string; walletChain: WalletChain }>
-  ): Promise<Map<number, { txHash: string }>> {
+  ): Promise<{ results: Map<number, { txHash: string }>; failed: boolean }> {
     const payoutByRank = new Map<number, { txHash: string }>();
 
     if (!raffle.rewardTotalAmount || winners.length === 0) {
       console.log(`[DEBUG] Auto-payout skipped: no reward amount or no winners`);
-      return payoutByRank;
+      return { results: payoutByRank, failed: false };
     }
 
     const amountPerWinner = raffle.rewardTotalAmount / winners.length;
@@ -3250,7 +3252,7 @@ export class RaffleBot {
         `⚠️ Auto payout skipped for *${raffle.title}*: invalid reward amount configured.`,
         { parse_mode: 'Markdown' }
       );
-      return payoutByRank;
+      return { results: payoutByRank, failed: false };
     }
 
     // Check if this is a custom token or native
@@ -3268,7 +3270,7 @@ export class RaffleBot {
         `⚠️ Auto payout skipped for *${raffle.title}*: no ${modeText} payout signer configured for *${getChainDisplayName(raffle.chain)}*.`,
         { parse_mode: 'Markdown' }
       );
-      return payoutByRank;
+      return { results: payoutByRank, failed: false };
     }
 
     try {
@@ -3302,17 +3304,25 @@ export class RaffleBot {
       }
 
       console.log(`[DEBUG] Auto-payout complete: ${payoutByRank.size} winners stored`);
+      return { results: payoutByRank, failed: false };
     } catch (error: any) {
       console.error(`[RaffleBot] ❌ Auto payout error:`, error);
       const errorMsg = error?.message || error?.toString?.() || 'unknown error';
+      
+      // Mark all winners as pending payout
+      for (const winner of winners) {
+        await this.raffleService.markWinnerPaid(raffle.id, winner.rank, null);
+        console.log(`[DEBUG] Marked winner ${winner.rank} as pending payout`);
+      }
+      
       await this.bot.sendMessage(
         raffle.createdBy,
-        `⚠️ Auto payout failed for *${raffle.title}*: ${errorMsg}`,
+        `⚠️ Auto payout failed for *${raffle.title}*: ${errorMsg}\n\nWinners have been announced and marked as *payment pending*. You can retry the payout manually once the network recovers.`,
         { parse_mode: 'Markdown' }
       );
+      
+      return { results: payoutByRank, failed: true };
     }
-
-    return payoutByRank;
   }
 
   private getTransactionExplorerUrl(chain: WalletChain, txHash: string): string {

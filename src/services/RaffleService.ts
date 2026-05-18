@@ -590,10 +590,10 @@ export class RaffleService {
     return winners;
   }
 
-  async markWinnerPaid(raffleId: number, rank: number, txHash: string): Promise<boolean> {
+  async markWinnerPaid(raffleId: number, rank: number, txHash?: string | null): Promise<boolean> {
     const result = await this.pool.query(
       `UPDATE raffle_winners SET payout_status = 'paid', payout_tx_hash = $3 WHERE raffle_id = $1 AND rank = $2`,
-      [raffleId, rank, txHash]
+      [raffleId, rank, txHash || null]
     );
 
     return (result.rowCount ?? 0) > 0;
